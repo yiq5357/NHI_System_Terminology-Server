@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app version="2.5">
+
+	<session-config>
+	 <session-timeout>20</session-timeout>
+	</session-config>
+	
+	<error-page>
+	 <exception-type>java.lang.Throwable</exception-type>
+	<location>/error.html</location>
+	</error-page>
+	<error-page>
+	 <error-code>404</error-code>
+	<location>/error.html</location>
+	</error-page>
+	<error-page>
+	 <error-code>500</error-code>
+	<location>/error.html</location>
+	</error-page>
+
+	<!-- 
+	This servlet is for the testing webpage, which is imported via
+	the hapi-fhir-testpage-overlay Maven WAR overlay
+	-->	
+	<servlet>
+		<servlet-name>spring</servlet-name>
+		<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+		<init-param>
+			<param-name>contextClass</param-name>
+			<param-value>org.springframework.web.context.support.AnnotationConfigWebApplicationContext</param-value>
+		</init-param>
+		<init-param>
+			<param-name>contextConfigLocation</param-name>
+			<param-value>com.hitstdio.fhir.server.config.FhirTesterConfig</param-value>
+		</init-param>
+		<init-param>
+			<param-name>debug</param-name>
+			<param-value>0</param-value>
+		</init-param>		
+	    <init-param>  
+	        <param-name>listings</param-name>  
+	        <param-value>false</param-value>  
+	    </init-param>  		
+		<load-on-startup>2</load-on-startup>
+	</servlet>
+
+	<!-- 
+	This is the actual FHIR server
+	-->
+	<servlet>
+		<servlet-name>fhirServlet</servlet-name>
+		<servlet-class>com.hitstdio.fhir.server.servlet.ExampleRestfulServlet</servlet-class>
+		<init-param>
+			<param-name>debug</param-name>
+			<param-value>0</param-value>
+		</init-param>
+		<init-param>
+			<param-name>listings</param-name>
+			<param-value>false</param-value>
+		</init-param>		
+		<load-on-startup>1</load-on-startup>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>fhirServlet</servlet-name>
+		<url-pattern>/*</url-pattern>
+	</servlet-mapping>
+   <!--<servlet-mapping>
+      <servlet-name>spring</servlet-name>
+      <url-pattern>/*</url-pattern>
+   </servlet-mapping>  -->
+</web-app>
