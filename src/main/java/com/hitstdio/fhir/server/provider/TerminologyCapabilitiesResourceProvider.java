@@ -19,31 +19,28 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 		super(theDaoRegistry);
 	}
 	
-	/*@Operation(name = "$metadata", idempotent = true)
-    public TerminologyCapabilities getTerminologyCapabilities(@OperationParam(name = "mode") String mode) {*/
-		
-	//@Metadata
-	@Operation(name = "$terminology-capabilities", idempotent = true, returnParameters = {})
-	public TerminologyCapabilities getTerminologyCapabilities(RequestDetails requestDetails) {
-        
-		//if (mode != null && mode.equals("terminology")) {
-		TerminologyCapabilities terminologyCapabilities = new TerminologyCapabilities();
-        
-        // 設置必要屬性
-        terminologyCapabilities.setStatus(Enumerations.PublicationStatus.ACTIVE);
-        terminologyCapabilities.setDate(new Date());
-        terminologyCapabilities.setPublisher("Your Organization");
-        
-        // 添加術語能力描述
-        terminologyCapabilities.addCodeSystem()
-            .setUri("http://loinc.org");
-        
-        // 其他配置...
-        
-        return terminologyCapabilities;
-		
-		//return null; // 如果不是 terminology 模式，返回 null 讓其他處理器處理
-    }
+	@Operation(name = "$metadata", idempotent = true)
+	public TerminologyCapabilities getTerminologyCapabilities(
+	    @OperationParam(name = "mode") String mode, 
+	    RequestDetails requestDetails
+	) {
+	    if (mode != null && mode.equals("terminology")) {
+	        TerminologyCapabilities terminologyCapabilities = new TerminologyCapabilities();
+	        
+	        // 設置必要屬性
+	        terminologyCapabilities.setStatus(Enumerations.PublicationStatus.ACTIVE);
+	        terminologyCapabilities.setDate(new Date());
+	        terminologyCapabilities.setPublisher("Your Organization");
+	        
+	        // 添加術語能力描述
+	        terminologyCapabilities.addCodeSystem()
+	            .setUri("http://loinc.org");
+	        
+	        return terminologyCapabilities;
+	    }
+	    
+	    return null; // 如果不是 terminology 模式，返回 null
+	}
 	
 	@Override
     public Class<TerminologyCapabilities> getResourceType() {
