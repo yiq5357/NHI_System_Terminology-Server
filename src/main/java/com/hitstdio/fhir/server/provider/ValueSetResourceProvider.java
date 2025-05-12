@@ -1,10 +1,14 @@
 package com.hitstdio.fhir.server.provider;
 
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.r4.model.CodeSystem;
+import org.hl7.fhir.r4.model.DateType;
 import org.hl7.fhir.r4.model.StringType;
 import org.hl7.fhir.r4.model.UriType;
 import org.hl7.fhir.r4.model.ValueSet;
@@ -19,7 +23,8 @@ import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.param.UriParam;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
-import ca.uhn.fhir.rest.param.StringParam;
+import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
+import ca.uhn.fhir.rest.param.TokenParam;
 
 
 public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSet> {
@@ -36,10 +41,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     @Operation(name = "$expand", idempotent = true)
     public ValueSet expandValueSet(
             @OperationParam(name = "url") UriType theUrl,
+            @OperationParam(name = "valueSetVersion") StringType theValueSetVersion, 
             @OperationParam(name = "filter") StringType theFilter, 
+            @OperationParam(name = "date") DateType theDate,
+            @OperationParam(name = "system-version") List<UriType> theSystemVersion,
+            @OperationParam(name = "check-system-version") List<UriType> theCheckSystemVersion,
+            @OperationParam(name = "force-system-version") List<UriType> theForceSystemVersion,            
             RequestDetails requestDetails) {
         
         ValueSet valueSet = retrieveValueSet(theUrl, requestDetails);
+
+        Map<String, String> systemVersionMap = parseSystemVersions(theSystemVersion);
+        Map<String, String> checkSystemVersionMap = parseSystemVersions(theCheckSystemVersion);
+        Map<String, String> forceSystemVersionMap = parseSystemVersions(theForceSystemVersion);        
         
         ValueSet result = new ValueSet();
         result.setMeta(valueSet.getMeta());
@@ -63,19 +77,24 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             expansion.addParameter().setName("displayLanguage").setValue(new StringType(displayLanguage));
         }
         
+        for (Map.Entry<String, String> entry : forceSystemVersionMap.entrySet()) {
+            expansion.addParameter().setName("force-system-version")
+                .setValue(new UriType(entry.getKey() + "|" + entry.getValue()));
+        } 
         
         for (ValueSet.ConceptSetComponent include : valueSet.getCompose().getInclude()) {
             String system = include.getSystem();
-            String version = include.getVersion();
+            String version = systemVersion(system, include.getVersion(), 
+                    systemVersionMap, checkSystemVersionMap, forceSystemVersionMap);
 
             CodeSystem codeSystem = findCodeSystem(system, version, requestDetails); 
             
             if (version == null) {
             	version = codeSystem.getVersion();
-            }
+            } 
             
             expansion.addParameter().setName("used-codesystem")
-                .setValue(new UriType(system + (version != null ? "|" + version : "")));
+            .setValue(new UriType(system + (version != null ? "|" + version : "")));
             
             if (version != null) {
                 expansion.addParameter().setName("version")
@@ -92,6 +111,49 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return result;
     }
 
+    private Map<String, String> parseSystemVersions(List<UriType> systemVersions) {
+        Map<String, String> result = new HashMap<>();
+        if (systemVersions != null) {
+            for (UriType systemVersion : systemVersions) {
+                String value = systemVersion.getValueAsString();
+                if (value != null && value.contains("|")) {
+                    String[] parts = value.split("\\|", 2);
+                    result.put(parts[0], parts[1]);
+                }
+            }
+        }
+        return result;
+    }   
+
+    private String systemVersion(String system, String includeVersion, 
+            Map<String, String> systemVersionMap, 
+            Map<String, String> checkSystemVersionMap,
+            Map<String, String> forceSystemVersionMap) {
+        
+        if (forceSystemVersionMap.containsKey(system)) {
+            return forceSystemVersionMap.get(system);
+        }
+        
+        if (checkSystemVersionMap.containsKey(system)) {
+            String expectedVersion = checkSystemVersionMap.get(system);
+            if (includeVersion != null && !includeVersion.equals(expectedVersion)) {
+                throw new UnprocessableEntityException(
+                    "ValueSet specifies version '" + includeVersion + "' for system '" + system + 
+                    "', but check-system-version requires version '" + expectedVersion + "'");
+            }
+            return expectedVersion;
+        }
+        
+        if (includeVersion != null) {
+            return includeVersion;
+        }
+        
+        if (systemVersionMap.containsKey(system)) {
+            return systemVersionMap.get(system);
+        }
+        return null;
+    }
+    
     private ValueSet retrieveValueSet(UriType theUrl, RequestDetails requestDetails) {
         if (theUrl == null && requestDetails.getId() == null) {
             throw new InvalidRequestException("Either 'url' parameter or ValueSet ID must be provided");
@@ -113,7 +175,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private CodeSystem findCodeSystem(String system, String version, RequestDetails requestDetails) {
         SearchParameterMap params = new SearchParameterMap().add("url", new UriParam(system));
         if (version != null) {
-            params.add("version", new StringParam(version));
+        	params.add("version", new TokenParam(version));
         }
         
         IBundleProvider results = codeSystemDao.search(params, requestDetails);
@@ -153,6 +215,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
+    //簡單的比對，日後再新增Fuzzy
     private boolean matchesFilter(String code, String display, StringType filter) {
         if (filter == null || filter.getValue() == null || filter.getValue().isEmpty()) {
             return true;
