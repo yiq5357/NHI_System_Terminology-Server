@@ -7,8 +7,12 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.hl7.fhir.instance.model.api.IIdType;
+import org.hl7.fhir.r4.model.BooleanType;
+import org.hl7.fhir.r4.model.CanonicalType;
 import org.hl7.fhir.r4.model.CodeSystem;
+import org.hl7.fhir.r4.model.CodeType;
 import org.hl7.fhir.r4.model.DateType;
+import org.hl7.fhir.r4.model.IntegerType;
 import org.hl7.fhir.r4.model.StringType;
 import org.hl7.fhir.r4.model.UriType;
 import org.hl7.fhir.r4.model.ValueSet;
@@ -44,9 +48,20 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "valueSetVersion") StringType theValueSetVersion, 
             @OperationParam(name = "filter") StringType theFilter, 
             @OperationParam(name = "date") DateType theDate,
+            @OperationParam(name = "offset") IntegerType theOffset,
+            @OperationParam(name = "count") IntegerType theCount,
+            @OperationParam(name = "includeDesignations") BooleanType theIncludeDesignations,
+            @OperationParam(name = "designation") List<StringType> theDesignation,
+            @OperationParam(name = "includeDefinition") BooleanType theIncludeDefinition,
+            @OperationParam(name = "activeOnly") BooleanType theActiveOnly,
+            @OperationParam(name = "excludeNested") BooleanType theExcludeNested,
+            @OperationParam(name = "excludeNotForUI") BooleanType theExcludeNotForUI,
+            @OperationParam(name = "excludePostCoordinated") BooleanType theExcludePostCoordinated,
+            @OperationParam(name = "displayLanguage") CodeType theDisplayLanguage,
+            @OperationParam(name = "exclude-system") List<CanonicalType> theExcludeSystem,
             @OperationParam(name = "system-version") List<UriType> theSystemVersion,
             @OperationParam(name = "check-system-version") List<UriType> theCheckSystemVersion,
-            @OperationParam(name = "force-system-version") List<UriType> theForceSystemVersion,            
+            @OperationParam(name = "force-system-version") List<UriType> theForceSystemVersion,             
             RequestDetails requestDetails) {
         
         ValueSet valueSet = retrieveValueSet(theUrl, requestDetails);
@@ -71,16 +86,113 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         result.setExpansion(expansion);
         expansion.setTimestamp(new Date());
         expansion.setIdentifier("urn:uuid:" + UUID.randomUUID().toString());
+
+        if (theUrl != null) {
+            expansion.addParameter().setName("url").setValue(theUrl);
+        }
         
-        String displayLanguage = requestDetails.getHeader("Accept-Language");
+        if (theValueSetVersion != null) {
+            expansion.addParameter().setName("valueSetVersion").setValue(theValueSetVersion);
+        }
+        
+        if (theFilter != null) {
+            expansion.addParameter().setName("filter").setValue(theFilter);
+        }
+        
+        if (theDate != null) {
+            expansion.addParameter().setName("date").setValue(theDate);
+        } else {
+            expansion.addParameter().setName("date").setValue(new DateType(new Date()));
+        }
+        
+        if (theOffset != null) {
+            expansion.addParameter().setName("offset").setValue(theOffset);
+        } else {
+            expansion.addParameter().setName("offset").setValue(new IntegerType(0));
+        }
+        
+        if (theCount != null) {
+            expansion.addParameter().setName("count").setValue(theCount);
+        } else {
+            expansion.addParameter().setName("count").setValue(new IntegerType(0));
+        }
+        
+        if (theIncludeDesignations != null) {
+            expansion.addParameter().setName("includeDesignations").setValue(theIncludeDesignations);
+        } else {
+            expansion.addParameter().setName("includeDesignations").setValue(new BooleanType(false));
+        }
+        
+        if (theDesignation != null) {
+            for (StringType designation : theDesignation) {
+                expansion.addParameter().setName("designation").setValue(designation);
+            }
+        }
+        
+        if (theIncludeDefinition != null) {
+            expansion.addParameter().setName("includeDefinition").setValue(theIncludeDefinition);
+        } else {
+            expansion.addParameter().setName("includeDefinition").setValue(new BooleanType(false));
+        }
+        
+        if (theActiveOnly != null) {
+            expansion.addParameter().setName("activeOnly").setValue(theActiveOnly);
+        } else {
+            expansion.addParameter().setName("activeOnly").setValue(new BooleanType(true));
+        }
+        
+        if (theExcludeNested != null) {
+            expansion.addParameter().setName("excludeNested").setValue(theExcludeNested);
+        } else {
+            expansion.addParameter().setName("excludeNested").setValue(new BooleanType(false));
+        }
+        
+        if (theExcludeNotForUI != null) {
+            expansion.addParameter().setName("excludeNotForUI").setValue(theExcludeNotForUI);
+        } else {
+            expansion.addParameter().setName("excludeNotForUI").setValue(new BooleanType(false));
+        }
+        
+        if (theExcludePostCoordinated != null) {
+            expansion.addParameter().setName("excludePostCoordinated").setValue(theExcludePostCoordinated);
+        } else {
+            expansion.addParameter().setName("excludePostCoordinated").setValue(new BooleanType(false));
+        }
+        
+        String displayLanguage = null;
+        if (theDisplayLanguage != null) {
+            displayLanguage = theDisplayLanguage.getValueAsString();
+        } else {
+            displayLanguage = requestDetails.getHeader("Accept-Language");
+        }
+        
         if (displayLanguage != null) {
             expansion.addParameter().setName("displayLanguage").setValue(new StringType(displayLanguage));
         }
         
-        for (Map.Entry<String, String> entry : forceSystemVersionMap.entrySet()) {
-            expansion.addParameter().setName("force-system-version")
-                .setValue(new UriType(entry.getKey() + "|" + entry.getValue()));
-        } 
+        if (theExcludeSystem != null) {
+            for (UriType excludeSystem : theExcludeSystem) {
+                expansion.addParameter().setName("exclude-system").setValue(excludeSystem);
+            }
+        }
+        
+        if (theSystemVersion != null) {
+            for (UriType systemVersion : theSystemVersion) {
+                expansion.addParameter().setName("system-version").setValue(systemVersion);
+            }
+        }
+        
+        if (theCheckSystemVersion != null) {
+            for (UriType checkSystemVersion : theCheckSystemVersion) {
+                expansion.addParameter().setName("check-system-version").setValue(checkSystemVersion);
+            }
+        }
+        
+        if (theForceSystemVersion != null) {
+            for (UriType forceSystemVersion : theForceSystemVersion) {
+                expansion.addParameter().setName("force-system-version").setValue(forceSystemVersion);
+            }
+        }
         
         for (ValueSet.ConceptSetComponent include : valueSet.getCompose().getInclude()) {
             String system = include.getSystem();
