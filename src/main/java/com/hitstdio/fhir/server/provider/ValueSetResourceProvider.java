@@ -201,8 +201,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
             CodeSystem codeSystem = findCodeSystem(system, version, requestDetails); 
             
-            if (version == null) {
-            	version = codeSystem.getVersion();
+            if (version == null && codeSystem != null && 
+                codeSystem.getVersion() != null && !codeSystem.getVersion().trim().isEmpty()) {
+                version = codeSystem.getVersion();
             } 
             
             expansion.addParameter().setName("used-codesystem")
@@ -230,7 +231,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 String value = systemVersion.getValueAsString();
                 if (value != null && value.contains("|")) {
                     String[] parts = value.split("\\|", 2);
-                    result.put(parts[0], parts[1]);
+                    if (parts.length > 1 && parts[1] != null && !parts[1].trim().isEmpty()) {
+                        result.put(parts[0], parts[1]);
+                    }
                 }
             }
         }
@@ -256,7 +259,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             return expectedVersion;
         }
         
-        if (includeVersion != null) {
+        if (includeVersion != null && !includeVersion.trim().isEmpty()) {
             return includeVersion;
         }
         
@@ -286,7 +289,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
     private CodeSystem findCodeSystem(String system, String version, RequestDetails requestDetails) {
         SearchParameterMap params = new SearchParameterMap().add("url", new UriParam(system));
-        if (version != null) {
+        if (version != null && !version.trim().isEmpty()) {
         	params.add("version", new TokenParam(version));
         }
         
