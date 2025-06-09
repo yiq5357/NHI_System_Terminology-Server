@@ -5,7 +5,11 @@ import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
 import ca.uhn.fhir.model.primitive.XhtmlDt;
 import ca.uhn.fhir.rest.annotation.*;
+import ca.uhn.fhir.rest.api.MethodOutcome;
+import ca.uhn.fhir.rest.api.PatchTypeEnum;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
+import ca.uhn.fhir.rest.api.server.RequestDetails;
+import ca.uhn.fhir.rest.api.server.SystemRequestDetails;
 import ca.uhn.fhir.rest.param.StringParam;
 import ca.uhn.fhir.rest.param.TokenParam;
 import ca.uhn.fhir.rest.param.UriParam;
@@ -32,6 +36,17 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     public CodeSystemResourceProvider(DaoRegistry theDaoRegistry) {
         super(theDaoRegistry);
         this.dao = theDaoRegistry.getResourceDao(CodeSystem.class);
+    }
+    
+    RequestDetails requestDetails = new SystemRequestDetails();
+    
+    @Patch
+    public MethodOutcome patch(
+        @IdParam IdType theId,
+        @ResourceParam PatchTypeEnum patchType,
+        @ResourceParam String thePatchBody
+    ) {
+        return dao.patch(theId, null, patchType, thePatchBody, null, requestDetails);
     }
     
     private CodeSystem getCodeSystem(String system, String version) {
@@ -309,108 +324,115 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     valuePart.setValue(value);
                 }
             });
-    }
+    } 
     
     @Operation(name = "$validate-code", idempotent = true)
-    public IBaseResource validateCode(
-    		@IdParam(optional = true) IdType resourceId,  // 新增此參數接收 URL 中的 [id]，選填
+    public Parameters validateCode(
+            @IdParam(optional = true) IdType resourceId,
             @OperationParam(name = "code") CodeType code,
             @OperationParam(name = "system") UriType system,
             @OperationParam(name = "version") StringType version,
-            @OperationParam(name = "display") StringType display) {
-        
-    	validateParams(code, system, resourceId);
-    	
-        // 1. 參數驗證
-        if (code == null || system == null) {
-            throw new InvalidRequestException("Both 'code' and 'system' parameters are required");
+            @OperationParam(name = "display") StringType display,
+            @OperationParam(name = "coding") Coding coding,
+            @OperationParam(name = "codeableConcept") CodeableConcept codeableConcept
+    ) {
+        // Extract values from Coding or CodeableConcept if provided
+        if (coding != null) {
+            code = coding.getCodeElement();
+            system = coding.getSystemElement();
+            display = coding.getDisplayElement();
+        } else if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()) {
+            Coding first = codeableConcept.getCodingFirstRep();
+            code = first.getCodeElement();
+            system = first.getSystemElement();
+            display = first.getDisplayElement();
         }
 
-        try {
-        	CodeSystem codeSystem;
-            if (resourceId != null) {
-            	
-                // 使用 ID 查找指定的 CodeSystem
-                codeSystem = getCodeSystemById(resourceId.getIdPart(), version);
-            } else {
-            	
-            // 2. 查找 CodeSystem 並驗證代碼
-            	codeSystem = findCodeSystemWithConcept(
-                code.getValue(), 
-                system.getValue(), 
-                version != null ? version.getValue() : null
-            );
+        validateCodeAndSystem(code, system, resourceId);
+
+         try {
+            CodeSystem codeSystem = (resourceId != null) ?
+            getCodeSystemById(resourceId.getIdPart(), version) :
+            validateFindCodeSystemWithConcept(code.getValue(), system.getValue(), version != null ? version.getValue() : null);
+
+            ConceptDefinitionComponent concept = findConceptRecursive(codeSystem.getConcept(), code.getValue());
+            if (concept == null) {
+                return buildResult(false, code, system, null, "Concept with code '" + code.getValue() + "' not found.");
             }
 
-            // 3. 找到對應的概念
-            ConceptDefinitionComponent concept = codeSystem.getConcept().stream()
-                .filter(c -> c.getCode().equals(code.getValue()))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException(
-                    String.format("Concept with code '%s' not found in system '%s'", 
-                    code.getValue(), system.getValue())
-                ));
+            boolean isValid = isDisplayValid(concept, display);
+            String message = isValid ? "Code validated successfully." : "Display does not match.";
 
-            // 4. 建立回應 Parameters
-            Parameters result = new Parameters();
-
-            // 5. 驗證顯示名稱（如果提供）
-            boolean isValid = true;
-            if (display != null && !display.isEmpty()) {
-                isValid = display.getValue().equals(concept.getDisplay());
-            }
-
-            // 6. 設置返回參數
-            result.addParameter()
-                  .setName("result")
-                  .setValue(new BooleanType(isValid));
-
-            result.addParameter()
-                  .setName("code")
-                  .setValue(code);
-
-            result.addParameter()
-                  .setName("system")
-                  .setValue(system);
-
-            if (concept.hasDisplay()) {
-                result.addParameter()
-                      .setName("display")
-                      .setValue(new StringType(concept.getDisplay()));
-            }
-
-            return result;
+            return buildResult(isValid, code, system, concept, message);
 
         } catch (ResourceNotFoundException e) {
-        	
-            // 7. 處理未找到資源的情況
-            Parameters result = new Parameters();
-            result.addParameter()
-                  .setName("result")
-                  .setValue(new BooleanType(false));
-            
-            return result;
+            return buildResult(false, code, system, null, e.getMessage());
         } catch (Exception e) {
-        	
-            // 8. 處理其他異常
-            return createErrorOperationOutcome(e);
+            return buildErrorOutcome(e);
         }
     }
 
-    // 驗證輸入參數
-    private void validateParams(CodeType code, UriType system, IdType resourceId) {
-        if (code == null) {
-            throw new InvalidRequestException("Parameter 'code' is required");
+    // 驗證 code 和 system/resourceId 是否有給
+    private void validateCodeAndSystem(CodeType code, UriType system, IdType resourceId) {
+    	// code 必填
+    	if (code == null || code.isEmpty()) {
+            throw new InvalidRequestException("Parameter 'code' is required.");
         }
-        // 如果沒有指定 resourceId，則必須提供 system
-        if (resourceId == null && system == null) {
-            throw new InvalidRequestException("Either 'system' or resource ID must be provided");
+    	// 至少要有 system 或 resourceId
+    	if (system == null && resourceId == null) {
+            throw new InvalidRequestException("Either 'system' or resource ID must be provided.");
         }
     }
 
-    // 根據 ID 獲取 CodeSystem
+    // 檢查 display 是否符合概念定義中的 display
+    private boolean isDisplayValid(ConceptDefinitionComponent concept, StringType display) {
+    	 // 若 display 沒填或正確，就視為通過
+    	return display == null || display.isEmpty() || display.getValue().equals(concept.getDisplay());
+    }
+
+    // 遞迴尋找指定 code 的 ConceptDefinitionComponent
+    private ConceptDefinitionComponent findConceptRecursive(List<ConceptDefinitionComponent> concepts, String code) {
+    	// 找到符合的 code
+    	for (ConceptDefinitionComponent concept : concepts) {
+            if (concept.getCode().equals(code)) {
+                return concept;
+            }
+            // 遞迴搜尋子概念
+            ConceptDefinitionComponent nested = findConceptRecursive(concept.getConcept(), code);
+            if (nested != null) return nested;
+        }
+        return null;
+    }
+
+    // 建立結果回應的 Parameters 結構（符合 FHIR 的 output 標準）
+    private Parameters buildResult(boolean isValid, CodeType code, UriType system, ConceptDefinitionComponent concept, String message) {
+        Parameters result = new Parameters();
+        // 驗證結果 true/false
+        result.addParameter().setName("result").setValue(new BooleanType(isValid));
+        // 回傳原始 code
+        result.addParameter().setName("code").setValue(code);
+        // 回傳原始 system
+        result.addParameter().setName("system").setValue(system);
+        // 回傳系統定義的 display（如果有）
+        if (concept != null && concept.hasDisplay()) {
+            result.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
+        }
+        // 驗證訊息
+        result.addParameter().setName("message").setValue(new StringType(message));
+        return result;
+    }
+
+    // 處理例外錯誤情況，包裝為 Parameters 回應
+    private Parameters buildErrorOutcome(Exception e) {
+        Parameters outcome = new Parameters();
+        outcome.addParameter().setName("result").setValue(new BooleanType(false));
+        outcome.addParameter().setName("message").setValue(new StringType("Internal error: " + e.getMessage()));
+        return outcome;
+    }
+
+    // Dummy placeholder, implement based on your DAO/service
     private CodeSystem getCodeSystemById(String id, StringType version) {
-        try {
+    	try {
         	
             // 建立基本的查詢參數
             SearchParameterMap searchParams = new SearchParameterMap();
@@ -453,60 +475,28 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // 查找概念
-    private ConceptDefinitionComponent findConcept(CodeSystem codeSystem, String code) {
-        return codeSystem.getConcept().stream()
-            .filter(c -> c.getCode().equals(code))
-            .findFirst()
-            .orElseThrow(() -> new ResourceNotFoundException(
-                String.format("Concept with code '%s' not found", code)
-            ));
-    }
+    private CodeSystem validateFindCodeSystemWithConcept(String code, String system, String version) {
+    	SearchParameterMap params = new SearchParameterMap();
+        params.add(CodeSystem.SP_URL, new UriParam(system));
+        
+        if (version != null) {
+            params.add(CodeSystem.SP_VERSION, new StringParam(version));
+        } 
 
-    // 驗證顯示名稱
-    private boolean validateDisplay(ConceptDefinitionComponent concept, StringType display) {
-        if (display == null || display.isEmpty()) {
-            return true;
-        }
-        return display.getValue().equals(concept.getDisplay());
-    }
+        IBundleProvider results = dao.search(params, null);
 
-    // 添加響應參數
-    private void addResponseParameters(
-            Parameters result, 
-            boolean isValid, 
-            CodeType code, 
-            UriType system, 
-            ConceptDefinitionComponent concept) {
-        
-        result.addParameter()
-              .setName("result")
-              .setValue(new BooleanType(isValid));
-        
-        result.addParameter()
-              .setName("code")
-              .setValue(code);
-        
-        if (system != null) {
-            result.addParameter()
-                  .setName("system")
-                  .setValue(system);
+        for (IBaseResource resource : results.getResources(0, results.size())) {
+            CodeSystem cs = (CodeSystem) resource;
+            ConceptDefinitionComponent concept = findConceptRecursive(cs.getConcept(), code);
+            if (concept != null) {
+                return cs; // 找到含該 code 的 CodeSystem
+            }
         }
-        
-        if (concept.hasDisplay()) {
-            result.addParameter()
-                  .setName("display")
-                  .setValue(new StringType(concept.getDisplay()));
-        }
-    }
 
-    // 創建未找到資源的響應
-    private Parameters createNotFoundResponse() {
-        Parameters result = new Parameters();
-        result.addParameter()
-              .setName("result")
-              .setValue(new BooleanType(false));
-        return result;
+        throw new ResourceNotFoundException(String.format(
+            "No CodeSystem with system '%s' and version '%s' contains code '%s'",
+            system, version, code
+        ));
     }
     
 	@Override
