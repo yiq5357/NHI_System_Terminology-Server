@@ -1,12 +1,9 @@
 package com.hitstdio.fhir.server.provider;
 
 import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.Collections;
 
-import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.CodeSystem;
@@ -14,15 +11,11 @@ import org.hl7.fhir.r4.model.Enumerations;
 
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
-import ca.uhn.fhir.jpa.api.dao.IFhirSystemDao;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
-import ca.uhn.fhir.rest.annotation.Metadata;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
-import ca.uhn.fhir.rest.param.UriParam;
-import ca.uhn.fhir.rest.server.RestfulServer;
 
 public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvider<TerminologyCapabilities> {
 

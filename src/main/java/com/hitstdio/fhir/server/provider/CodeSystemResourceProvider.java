@@ -17,6 +17,8 @@ import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 
+import org.hl7.fhir.instance.model.api.IBaseExtension;
+import org.hl7.fhir.instance.model.api.IBaseHasExtensions;
 import org.hl7.fhir.instance.model.api.IBaseOperationOutcome;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.*;
@@ -29,10 +31,19 @@ import java.util.*;
 
 public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem> {
     
-	// IFhirResourceDao：泛型接口，提供針對 FHIR 資源的基本操作方法，例如 CRUD 操作
-	private final IFhirResourceDao<CodeSystem> dao;
+    // Extension URLs as constants
+    private static final String CODESYSTEM_ALTERNATE_EXT = "http://hl7.org/fhir/StructureDefinition/codesystem-alternate";
+    private static final String CODESYSTEM_CONCEPT_ORDER_EXT = "http://hl7.org/fhir/StructureDefinition/codesystem-conceptOrder";
+    private static final String CODESYSTEM_LABEL_EXT = "http://hl7.org/fhir/StructureDefinition/codesystem-label";
+    private static final String CODING_SCTDESCID_EXT = "http://hl7.org/fhir/StructureDefinition/coding-sctdescid";
+    private static final String ITEM_WEIGHT_EXT = "http://hl7.org/fhir/StructureDefinition/itemWeight";
+    private static final String RENDERING_STYLE_EXT = "http://hl7.org/fhir/StructureDefinition/rendering-style";
+    private static final String RENDERING_XHTML_EXT = "http://hl7.org/fhir/StructureDefinition/rendering-xhtml";
     
-	// DaoRegistry：FHIR 的 HAPI FHIR 框架提供的工具，作為 DAO（資料訪問物件）的管理中心
+    // IFhirResourceDao：泛型接口，提供針對 FHIR 資源的基本操作方法，例如 CRUD 操作
+    private final IFhirResourceDao<CodeSystem> dao;
+    
+    // DaoRegistry：FHIR 的 HAPI FHIR 框架提供的工具，作為 DAO（資料訪問物件）的管理中心
     public CodeSystemResourceProvider(DaoRegistry theDaoRegistry) {
         super(theDaoRegistry);
         this.dao = theDaoRegistry.getResourceDao(CodeSystem.class);
@@ -50,9 +61,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     }
     
     private CodeSystem getCodeSystem(String system, String version) {
-        
-    	// 建立搜尋參數
-    	// SearchParameterMap：FHIR 的查詢參數容器，用於指定搜尋條件
         SearchParameterMap searchParams = new SearchParameterMap();
         searchParams.add(CodeSystem.SP_URL, new UriParam(system));
         if (version != null) {
@@ -60,8 +68,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
         
         try {
-            // 執行搜尋
-        	// IBundleProvider：搜尋結果的封裝物件，包含資源集合，支持分頁和延遲加載
             IBundleProvider searchResult = dao.search(searchParams, null);
             
             if (searchResult.size() == 0) {
@@ -70,7 +76,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     system, version));
             }
             
-            // 取得第一個符合的結果
             CodeSystem codeSystem = (CodeSystem) searchResult.getResources(0, 1).get(0);
             
             if (codeSystem == null) {
@@ -88,7 +93,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
     
-    @Operation(name = "$lookup", idempotent = true)// idempotent：重複執行相同的請求不會改變資源狀態或結果
+    @Operation(name = "$lookup", idempotent = true)
     public IBaseResource lookup(
             @OperationParam(name = "code") CodeType code,
             @OperationParam(name = "system") UriType system,
@@ -96,7 +101,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             @OperationParam(name = "coding") Coding coding,
             @OperationParam(name = "property") List<StringType> properties) {
           		
-        // 1. 增加輸入參數驗證
         validateInputParameters(code, system, coding);
         
         if (coding != null) {
@@ -108,7 +112,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
              
     	try {     
-            // 2. 新增系統參數檢查
             if (system == null || system.isEmpty()) {
                 throw new UnprocessableEntityException("The system parameter is required");
             }
@@ -121,7 +124,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
 
             Parameters retVal = new Parameters();
             
-            // 3. 使用 builder pattern 建立回應
             String codeValue = code.getValue();
             String codeSystemValue = system.getValue();
             ConceptDefinitionComponent concept = codeSystem.getConcept().stream()
@@ -130,57 +132,26 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             											   .orElseThrow(() -> new ResourceNotFoundException(
             													   String.format("Concept with code '%s' not found in system '%s'", codeValue, codeSystemValue)));
                 
-                buildSuccessResponse(codeSystem, retVal, concept, properties);
+            // Enhanced response building with extensions support
+            buildSuccessResponseWithExtensions(codeSystem, retVal, concept, properties);
 
-                return retVal;
+            return retVal;
             
         } catch (ResourceNotFoundException e) {
-            // 4. 更詳細的錯誤處理
         	return createOperationOutcome(e);
-        	
         } catch (Exception e) {
-            // 5. 具體的例外處理
         	return createErrorOperationOutcome(e);
         }
     }
     
-  
-    
-    // 驗證參數：確保必須至少有 code 或 coding
-    private void validateInputParameters(CodeType code, UriType system, Coding coding) {
-        if (code == null && coding == null) {
-            throw new InvalidRequestException("Either 'code' or 'coding' parameter must be provided");
-        }
-        
-        if (coding != null && coding.isEmpty()) {
-            throw new InvalidRequestException("If coding is provided, it cannot be empty");
-        }
-    }
-    
-    // 查找概念    
-    private CodeSystem findCodeSystemWithConcept(String code, String system, String version) {
-        try {
-            CodeSystem codeSystem = getCodeSystem(system, version);
-            codeSystem.getConcept().stream()
-                      .filter(c -> c.getCode().equals(code))
-                      .findFirst()
-                      .orElseThrow(() -> new ResourceNotFoundException(
-                    		  String.format("Concept with code '%s' not found in system '%s'", code, system)));
-            return codeSystem;
-        } catch (Exception e) {
-            throw new ResourceNotFoundException(
-                String.format("Error finding concept: %s", e.getMessage()), e);
-        }
-    }
-    
-    // 成功回應
-    private void buildSuccessResponse(
-    				CodeSystem codeSystem, 
-    				Parameters retVal, 
-    				ConceptDefinitionComponent concept, 
-    				List<StringType> properties) {
+    // Enhanced success response with extensions support
+    private void buildSuccessResponseWithExtensions(
+                    CodeSystem codeSystem, 
+                    Parameters retVal, 
+                    ConceptDefinitionComponent concept, 
+                    List<StringType> properties) {
 
-    	// 設置基本參數
+        // Basic parameters
         retVal.addParameter()
               .setName("name")
               .setValue(new StringType(codeSystem.getName()));
@@ -195,7 +166,10 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                   .setValue(new StringType(concept.getDefinition()));
         }
         
-        // 處理額外屬性
+        // Add extensions support
+        addExtensionsToLookupResponse(retVal, codeSystem, concept);
+        
+        // Handle additional properties
         if (properties != null && !properties.isEmpty()) {
             for (StringType property : properties) {
                 addPropertyToParameters(retVal, concept, property.getValue());
@@ -206,126 +180,94 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
               .setName("found")
               .setValue(new BooleanType(true));
     }
-
     
-    // 创建未找到资源的OperationOutcome
-    private OperationOutcome createNotFoundOperationOutcome(Exception e) {
-        OperationOutcome outcome = new OperationOutcome();
-        outcome.setId("exception");
+    // Add extensions to lookup response
+    private void addExtensionsToLookupResponse(Parameters retVal, CodeSystem codeSystem, ConceptDefinitionComponent concept) {
         
-        // 生成HTML div
-        String htmlDiv = "<div xmlns=\"http://www.w3.org/1999/xhtml\"><h1>Operation Outcome</h1>" +
-                         "<table border=\"0\"><tr><td style=\"font-weight: bold;\">ERROR</td><td>[]</td><td></td></tr></table></div>";
-        
-        outcome.getText().setStatus(Narrative.NarrativeStatus.GENERATED);
-        
-        // 創建一個新的 XhtmlNode 並設置內容
-        XhtmlNode divNode = new XhtmlNode();
-        divNode.setValueAsString(htmlDiv);
-
-        // 將 XhtmlNode 設置到 Resource 的 Text div
-        outcome.getText().setDiv(divNode);
-        
-        outcome.addIssue()
-               .setSeverity(OperationOutcome.IssueSeverity.ERROR)
-               .setCode(OperationOutcome.IssueType.NOTFOUND)
-               .setDetails(new CodeableConcept().setText(e.getMessage()));
-        
-        return outcome;
-    }
-    
-    // 创建通用错误的OperationOutcome
-    private OperationOutcome createErrorOperationOutcome(Exception e) {
-        OperationOutcome outcome = new OperationOutcome();
-        outcome.setId("exception");
-        
-        outcome.addIssue()
-               .setSeverity(OperationOutcome.IssueSeverity.ERROR)
-               .setCode(OperationOutcome.IssueType.EXCEPTION)
-               .setDetails(new CodeableConcept().setText("Error processing lookup operation: " + e.getMessage()));
-        
-        return outcome;
-    }
-    
-    
-    // 建立OperationOutcome的新方法
-    private OperationOutcome createOperationOutcome(Exception e) {
-        return createOperationOutcome(
-            e.getMessage(), 
-            OperationOutcome.IssueSeverity.ERROR, 
-            OperationOutcome.IssueType.NOTFOUND
-        );
-    }
-    
-    // 使用自訂參數建立OperationOutcome的重載方法
-    private OperationOutcome createOperationOutcome(
-            String message, 
-            OperationOutcome.IssueSeverity severity, 
-            OperationOutcome.IssueType issueType) {
-        
-        OperationOutcome outcome = new OperationOutcome();
-        outcome.setId("exception");
-        
-        // 產生用於文字表示的 HTML div
-        String htmlDiv = String.format(
-        		"<div xmlns=\"http://www.w3.org/1999/xhtml\">" +
-        		        "<h1>Operation Outcome</h1>" +
-        		        "<table border=\"0\">" +
-        		        "<tr><td style=\"font-weight: bold;\">%s</td><td>[]</td><td>%s</td></tr>" +
-        		        "</table></div>", 
-        		        severity.toCode(),
-        		        message
-        );
- 
-        Narrative narrative = new Narrative();
-        narrative.setStatus(Narrative.NarrativeStatus.GENERATED);
-        narrative.setDivAsString(htmlDiv);
-        
-        outcome.setText(narrative);
-        
-        outcome.addIssue()
-               .setSeverity(severity)
-               .setCode(issueType)
-               .setDetails(new CodeableConcept().setText(message));
-        
-        return outcome;
-    }
-    
-    // 例外處理
-    public class ResourceNotFoundException extends RuntimeException {
-        public ResourceNotFoundException(String message) {
-            super(message);
+        // 1. codesystem-alternate extension
+        if (concept.hasExtension(CODESYSTEM_ALTERNATE_EXT)) {
+            List<Extension> alternateExts = concept.getExtensionsByUrl(CODESYSTEM_ALTERNATE_EXT);
+            for (Extension ext : alternateExts) {
+                Parameters.ParametersParameterComponent param = retVal.addParameter();
+                param.setName("designation");
+                param.addPart().setName("use").setValue(new Coding().setCode("alternate"));
+                param.addPart().setName("value").setValue(ext.getValue());
+            }
         }
-
-        public ResourceNotFoundException(String message, Throwable cause) {
-            super(message, cause);
+        
+        // 2. codesystem-conceptOrder extension
+        if (concept.hasExtension(CODESYSTEM_CONCEPT_ORDER_EXT)) {
+            Extension orderExt = concept.getExtensionByUrl(CODESYSTEM_CONCEPT_ORDER_EXT);
+            if (orderExt != null && orderExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = retVal.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("conceptOrder"));
+                prop.addPart().setName("value").setValue(orderExt.getValue());
+            }
+        }
+        
+        // 3. codesystem-label extension
+        if (concept.hasExtension(CODESYSTEM_LABEL_EXT)) {
+            List<Extension> labelExts = concept.getExtensionsByUrl(CODESYSTEM_LABEL_EXT);
+            for (Extension ext : labelExts) {
+                Parameters.ParametersParameterComponent param = retVal.addParameter();
+                param.setName("designation");
+                param.addPart().setName("use").setValue(new Coding().setCode("label"));
+                param.addPart().setName("value").setValue(ext.getValue());
+            }
+        }
+        
+        // 4. coding-sctdescid extension (for SNOMED CT)
+        if (isSnomedCT(codeSystem.getUrl()) && concept.hasExtension(CODING_SCTDESCID_EXT)) {
+            Extension sctDescExt = concept.getExtensionByUrl(CODING_SCTDESCID_EXT);
+            if (sctDescExt != null && sctDescExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = retVal.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("sctDescId"));
+                prop.addPart().setName("value").setValue(sctDescExt.getValue());
+            }
+        }
+        
+        // 5. itemWeight extension
+        if (concept.hasExtension(ITEM_WEIGHT_EXT)) {
+            Extension weightExt = concept.getExtensionByUrl(ITEM_WEIGHT_EXT);
+            if (weightExt != null && weightExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = retVal.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("itemWeight"));
+                prop.addPart().setName("value").setValue(weightExt.getValue());
+            }
+        }
+        
+        // 6. rendering-style extension
+        if (concept.hasExtension(RENDERING_STYLE_EXT)) {
+            Extension styleExt = concept.getExtensionByUrl(RENDERING_STYLE_EXT);
+            if (styleExt != null && styleExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = retVal.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("renderingStyle"));
+                prop.addPart().setName("value").setValue(styleExt.getValue());
+            }
+        }
+        
+        // 7. rendering-xhtml extension
+        if (concept.hasExtension(RENDERING_XHTML_EXT)) {
+            Extension xhtmlExt = concept.getExtensionByUrl(RENDERING_XHTML_EXT);
+            if (xhtmlExt != null && xhtmlExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = retVal.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("renderingXhtml"));
+                prop.addPart().setName("value").setValue(xhtmlExt.getValue());
+            }
         }
     }
-
-    // 將特定的屬性從一個 ConceptDefinitionComponent 物件添加到一個 Parameters 物件
-    private void addPropertyToParameters(Parameters params, ConceptDefinitionComponent concept, String propertyName) {
-        concept.getProperty().stream()
-               .filter(p -> p.getCode().equals(propertyName))
-               .forEach(p -> {
-            	   Parameters.ParametersParameterComponent prop = params.addParameter();
-            	   prop.setName("property");
-            	   prop.addPart().setName("code").setValue(new CodeType(p.getCode()));
-                
-                // 改進型別處理
-                Type value = p.getValue();
-                Parameters.ParametersParameterComponent valuePart = prop.addPart().setName("value");
-                if (value instanceof CodeType) {
-                    valuePart.setValue(new CodeType(((CodeType)value).getValue()));
-                } else if (value instanceof StringType) {
-                    valuePart.setValue(new StringType(((StringType)value).getValue()));
-                } else if (value instanceof BooleanType) {
-                    valuePart.setValue(new BooleanType(((BooleanType)value).getValue()));
-                } else {
-                    valuePart.setValue(value);
-                }
-            });
-    } 
     
+    // Helper method to check if CodeSystem is SNOMED CT
+    private boolean isSnomedCT(String systemUrl) {
+        return systemUrl != null && systemUrl.contains("snomed.info/sct");
+    }
+    
+    // Enhanced validate-code operation with extensions support
     @Operation(name = "$validate-code", idempotent = true)
     public Parameters validateCode(
             @IdParam(optional = true) IdType resourceId,
@@ -350,10 +292,10 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
 
         validateCodeAndSystem(code, system, resourceId);
 
-         try {
+        try {
             CodeSystem codeSystem = (resourceId != null) ?
-            getCodeSystemById(resourceId.getIdPart(), version) :
-            validateFindCodeSystemWithConcept(code.getValue(), system.getValue(), version != null ? version.getValue() : null);
+                getCodeSystemById(resourceId.getIdPart(), version) :
+                validateFindCodeSystemWithConcept(code.getValue(), system.getValue(), version != null ? version.getValue() : null);
 
             ConceptDefinitionComponent concept = findConceptRecursive(codeSystem.getConcept(), code.getValue());
             if (concept == null) {
@@ -363,7 +305,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             boolean isValid = isDisplayValid(concept, display);
             String message = isValid ? "Code validated successfully." : "Display does not match.";
 
-            return buildResult(isValid, code, system, concept, message);
+            // Enhanced result with extensions
+            return buildResultWithExtensions(isValid, code, system, codeSystem, concept, message);
 
         } catch (ResourceNotFoundException e) {
             return buildResult(false, code, system, null, e.getMessage());
@@ -371,58 +314,226 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             return buildErrorOutcome(e);
         }
     }
+    
+    // Enhanced result building with extensions
+    private Parameters buildResultWithExtensions(boolean isValid, CodeType code, UriType system, 
+                                               CodeSystem codeSystem, ConceptDefinitionComponent concept, String message) {
+        Parameters result = new Parameters();
+        
+        // Basic validation result
+        result.addParameter().setName("result").setValue(new BooleanType(isValid));
+        result.addParameter().setName("code").setValue(code);
+        result.addParameter().setName("system").setValue(system);
+        
+        if (concept != null && concept.hasDisplay()) {
+            result.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
+        }
+        
+        result.addParameter().setName("message").setValue(new StringType(message));
+        
+        // Add extensions information if validation is successful
+        if (isValid && concept != null) {
+            addExtensionsToValidateResponse(result, codeSystem, concept);
+        }
+        
+        return result;
+    }
+    
+    // Add extensions to validate-code response
+    private void addExtensionsToValidateResponse(Parameters result, CodeSystem codeSystem, ConceptDefinitionComponent concept) {
+        
+        // Add concept order if available
+        if (concept.hasExtension(CODESYSTEM_CONCEPT_ORDER_EXT)) {
+            Extension orderExt = concept.getExtensionByUrl(CODESYSTEM_CONCEPT_ORDER_EXT);
+            if (orderExt != null && orderExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = result.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("conceptOrder"));
+                prop.addPart().setName("value").setValue(orderExt.getValue());
+            }
+        }
+        
+        // Add labels if available
+        if (concept.hasExtension(CODESYSTEM_LABEL_EXT)) {
+            List<Extension> labelExts = concept.getExtensionsByUrl(CODESYSTEM_LABEL_EXT);
+            for (Extension ext : labelExts) {
+                Parameters.ParametersParameterComponent param = result.addParameter();
+                param.setName("designation");
+                param.addPart().setName("use").setValue(new Coding().setCode("label"));
+                param.addPart().setName("value").setValue(ext.getValue());
+            }
+        }
+        
+        // Add item weight if available
+        if (concept.hasExtension(ITEM_WEIGHT_EXT)) {
+            Extension weightExt = concept.getExtensionByUrl(ITEM_WEIGHT_EXT);
+            if (weightExt != null && weightExt.hasValue()) {
+                Parameters.ParametersParameterComponent prop = result.addParameter();
+                prop.setName("property");
+                prop.addPart().setName("code").setValue(new CodeType("itemWeight"));
+                prop.addPart().setName("value").setValue(weightExt.getValue());
+            }
+        }
+    }
+    
+    // Utility method to add extension to concept
+    public static void addExtensionToConcept(ConceptDefinitionComponent concept, String extensionUrl, Type value) {
+        Extension extension = new Extension(extensionUrl, value);
+        concept.addExtension(extension);
+    }
+    
+    // Utility method to add extension to CodeSystem
+    public static void addExtensionToCodeSystem(CodeSystem codeSystem, String extensionUrl, Type value) {
+        Extension extension = new Extension(extensionUrl, value);
+        codeSystem.addExtension(extension);
+    }
+    
+    // [Keep all existing methods unchanged]
+    private void validateInputParameters(CodeType code, UriType system, Coding coding) {
+        if (code == null && coding == null) {
+            throw new InvalidRequestException("Either 'code' or 'coding' parameter must be provided");
+        }
+        
+        if (coding != null && coding.isEmpty()) {
+            throw new InvalidRequestException("If coding is provided, it cannot be empty");
+        }
+    }
+    
+    private CodeSystem findCodeSystemWithConcept(String code, String system, String version) {
+        try {
+            CodeSystem codeSystem = getCodeSystem(system, version);
+            codeSystem.getConcept().stream()
+                      .filter(c -> c.getCode().equals(code))
+                      .findFirst()
+                      .orElseThrow(() -> new ResourceNotFoundException(
+                    		  String.format("Concept with code '%s' not found in system '%s'", code, system)));
+            return codeSystem;
+        } catch (Exception e) {
+            throw new ResourceNotFoundException(
+                String.format("Error finding concept: %s", e.getMessage()), e);
+        }
+    }
+    
+    private OperationOutcome createOperationOutcome(Exception e) {
+        return createOperationOutcome(
+            e.getMessage(), 
+            OperationOutcome.IssueSeverity.ERROR, 
+            OperationOutcome.IssueType.NOTFOUND
+        );
+    }
+    
+    private OperationOutcome createOperationOutcome(
+            String message, 
+            OperationOutcome.IssueSeverity severity, 
+            OperationOutcome.IssueType issueType) {
+        
+        OperationOutcome outcome = new OperationOutcome();
+        outcome.setId("exception");
+        
+        String htmlDiv = String.format(
+        		"<div xmlns=\"http://www.w3.org/1999/xhtml\">" +
+        		        "<h1>Operation Outcome</h1>" +
+        		        "<table border=\"0\">" +
+        		        "<tr><td style=\"font-weight: bold;\">%s</td><td>[]</td><td>%s</td></tr>" +
+        		        "</table></div>", 
+        		        severity.toCode(),
+        		        message
+        );
+ 
+        Narrative narrative = new Narrative();
+        narrative.setStatus(Narrative.NarrativeStatus.GENERATED);
+        narrative.setDivAsString(htmlDiv);
+        
+        outcome.setText(narrative);
+        
+        outcome.addIssue()
+               .setSeverity(severity)
+               .setCode(issueType)
+               .setDetails(new CodeableConcept().setText(message));
+        
+        return outcome;
+    }
+    
+    private OperationOutcome createErrorOperationOutcome(Exception e) {
+        OperationOutcome outcome = new OperationOutcome();
+        outcome.setId("exception");
+        
+        outcome.addIssue()
+               .setSeverity(OperationOutcome.IssueSeverity.ERROR)
+               .setCode(OperationOutcome.IssueType.EXCEPTION)
+               .setDetails(new CodeableConcept().setText("Error processing lookup operation: " + e.getMessage()));
+        
+        return outcome;
+    }
+    
+    public class ResourceNotFoundException extends RuntimeException {
+        public ResourceNotFoundException(String message) {
+            super(message);
+        }
 
-    // 驗證 code 和 system/resourceId 是否有給
+        public ResourceNotFoundException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private void addPropertyToParameters(Parameters params, ConceptDefinitionComponent concept, String propertyName) {
+        concept.getProperty().stream()
+               .filter(p -> p.getCode().equals(propertyName))
+               .forEach(p -> {
+            	   Parameters.ParametersParameterComponent prop = params.addParameter();
+            	   prop.setName("property");
+            	   prop.addPart().setName("code").setValue(new CodeType(p.getCode()));
+                
+                Type value = p.getValue();
+                Parameters.ParametersParameterComponent valuePart = prop.addPart().setName("value");
+                if (value instanceof CodeType) {
+                    valuePart.setValue(new CodeType(((CodeType)value).getValue()));
+                } else if (value instanceof StringType) {
+                    valuePart.setValue(new StringType(((StringType)value).getValue()));
+                } else if (value instanceof BooleanType) {
+                    valuePart.setValue(new BooleanType(((BooleanType)value).getValue()));
+                } else {
+                    valuePart.setValue(value);
+                }
+            });
+    } 
+    
     private void validateCodeAndSystem(CodeType code, UriType system, IdType resourceId) {
-    	// code 必填
     	if (code == null || code.isEmpty()) {
             throw new InvalidRequestException("Parameter 'code' is required.");
         }
-    	// 至少要有 system 或 resourceId
     	if (system == null && resourceId == null) {
             throw new InvalidRequestException("Either 'system' or resource ID must be provided.");
         }
     }
 
-    // 檢查 display 是否符合概念定義中的 display
     private boolean isDisplayValid(ConceptDefinitionComponent concept, StringType display) {
-    	 // 若 display 沒填或正確，就視為通過
     	return display == null || display.isEmpty() || display.getValue().equals(concept.getDisplay());
     }
 
-    // 遞迴尋找指定 code 的 ConceptDefinitionComponent
     private ConceptDefinitionComponent findConceptRecursive(List<ConceptDefinitionComponent> concepts, String code) {
-    	// 找到符合的 code
     	for (ConceptDefinitionComponent concept : concepts) {
             if (concept.getCode().equals(code)) {
                 return concept;
             }
-            // 遞迴搜尋子概念
             ConceptDefinitionComponent nested = findConceptRecursive(concept.getConcept(), code);
             if (nested != null) return nested;
         }
         return null;
     }
 
-    // 建立結果回應的 Parameters 結構（符合 FHIR 的 output 標準）
     private Parameters buildResult(boolean isValid, CodeType code, UriType system, ConceptDefinitionComponent concept, String message) {
         Parameters result = new Parameters();
-        // 驗證結果 true/false
         result.addParameter().setName("result").setValue(new BooleanType(isValid));
-        // 回傳原始 code
         result.addParameter().setName("code").setValue(code);
-        // 回傳原始 system
         result.addParameter().setName("system").setValue(system);
-        // 回傳系統定義的 display（如果有）
         if (concept != null && concept.hasDisplay()) {
             result.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
         }
-        // 驗證訊息
         result.addParameter().setName("message").setValue(new StringType(message));
         return result;
     }
 
-    // 處理例外錯誤情況，包裝為 Parameters 回應
     private Parameters buildErrorOutcome(Exception e) {
         Parameters outcome = new Parameters();
         outcome.addParameter().setName("result").setValue(new BooleanType(false));
@@ -430,34 +541,27 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return outcome;
     }
 
-    // Dummy placeholder, implement based on your DAO/service
     private CodeSystem getCodeSystemById(String id, StringType version) {
     	try {
-        	
-            // 建立基本的查詢參數
             SearchParameterMap searchParams = new SearchParameterMap();
             searchParams.add("_id", new TokenParam(id));
             
-            // 如果有指定版本，加入版本查詢條件
             if (version != null && !version.isEmpty()) {
                 searchParams.add(CodeSystem.SP_VERSION, new StringParam(version.getValue()));
             }
 
-            // 執行查詢
             IBundleProvider searchResult = dao.search(searchParams, null);
             
             if (searchResult.size() == 0) {
                 throw new ResourceNotFoundException("CodeSystem not found with ID: " + id);
             }
 
-            // 取得第一個符合的結果
             CodeSystem codeSystem = (CodeSystem) searchResult.getResources(0, 1).get(0);
             
             if (codeSystem == null) {
                 throw new ResourceNotFoundException("CodeSystem not found with ID: " + id);
             }
 
-            // 如果有指定版本但查詢結果的版本不符
             if (version != null && !version.isEmpty() && 
                 !version.getValue().equals(codeSystem.getVersion())) {
                 throw new ResourceNotFoundException(
@@ -489,7 +593,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             CodeSystem cs = (CodeSystem) resource;
             ConceptDefinitionComponent concept = findConceptRecursive(cs.getConcept(), code);
             if (concept != null) {
-                return cs; // 找到含該 code 的 CodeSystem
+                return cs;
             }
         }
 
