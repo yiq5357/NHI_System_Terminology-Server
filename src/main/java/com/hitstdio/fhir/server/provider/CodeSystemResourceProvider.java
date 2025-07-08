@@ -23,6 +23,8 @@ import org.hl7.fhir.instance.model.api.IBaseOperationOutcome;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
+import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionDesignationComponent;
+import org.hl7.fhir.r4.model.CodeSystem.ConceptPropertyComponent;
 import org.hl7.fhir.utilities.xhtml.XhtmlNode;
 import org.hl7.fhir.utilities.xhtml.XhtmlParser;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -146,40 +148,65 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     
     // Enhanced success response with extensions support
     private void buildSuccessResponseWithExtensions(
-                    CodeSystem codeSystem, 
-                    Parameters retVal, 
-                    ConceptDefinitionComponent concept, 
-                    List<StringType> properties) {
+    	    CodeSystem codeSystem, 
+    	    Parameters retVal, 
+    	    ConceptDefinitionComponent concept, 
+    	    List<StringType> properties) {
+    	    
+    	    // 必要的基本參數
+    	    retVal.addParameter().setName("name").setValue(new StringType(codeSystem.getName()));
+    	    retVal.addParameter().setName("version").setValue(new StringType(codeSystem.getVersion()));
+    	    retVal.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
+    	    
+    	    if (concept.hasDefinition()) {
+    	        retVal.addParameter().setName("definition").setValue(new StringType(concept.getDefinition()));
+    	    }
+    	    
+    	    // 添加所有 designation（包括原始 display）
+    	    addDesignations(retVal, concept);
+    	    
+    	    // 添加所有 property
+    	    addAllProperties(retVal, concept, codeSystem);
+    	    
+    	    // Extensions 支援
+    	    addExtensionsToLookupResponse(retVal, codeSystem, concept);
+    	    
+    	    retVal.addParameter().setName("found").setValue(new BooleanType(true));
+    	}
 
-        // Basic parameters
-        retVal.addParameter()
-              .setName("name")
-              .setValue(new StringType(codeSystem.getName()));
-            
-        retVal.addParameter()
-              .setName("display")
-              .setValue(new StringType(concept.getDisplay()));
-            
-        if (concept.hasDefinition()) {
-            retVal.addParameter()
-                  .setName("definition")
-                  .setValue(new StringType(concept.getDefinition()));
-        }
-        
-        // Add extensions support
-        addExtensionsToLookupResponse(retVal, codeSystem, concept);
-        
-        // Handle additional properties
-        if (properties != null && !properties.isEmpty()) {
-            for (StringType property : properties) {
-                addPropertyToParameters(retVal, concept, property.getValue());
-            }
-        }
-        
-        retVal.addParameter()
-              .setName("found")
-              .setValue(new BooleanType(true));
-    }
+    	private void addDesignations(Parameters retVal, ConceptDefinitionComponent concept) {
+    	    // 添加原始 display 作為 designation
+    	    if (concept.hasDisplay()) {
+    	        Parameters.ParametersParameterComponent param = retVal.addParameter();
+    	        param.setName("designation");
+    	        param.addPart().setName("language").setValue(new CodeType("en"));
+    	        param.addPart().setName("value").setValue(new StringType(concept.getDisplay()));
+    	    }
+    	    
+    	    // 添加其他 designations
+    	    for (ConceptDefinitionDesignationComponent designation : concept.getDesignation()) {
+    	        Parameters.ParametersParameterComponent param = retVal.addParameter();
+    	        param.setName("designation");
+    	        
+    	        if (designation.hasLanguage()) {
+    	            param.addPart().setName("language").setValue(new CodeType(designation.getLanguage()));
+    	        }
+    	        if (designation.hasUse()) {
+    	            param.addPart().setName("use").setValue(designation.getUse());
+    	        }
+    	        param.addPart().setName("value").setValue(new StringType(designation.getValue()));
+    	    }
+    	}
+
+    	private void addAllProperties(Parameters retVal, ConceptDefinitionComponent concept, CodeSystem codeSystem) {
+    	    // 添加 concept 的所有 properties
+    	    for (ConceptPropertyComponent prop : concept.getProperty()) {
+    	        Parameters.ParametersParameterComponent param = retVal.addParameter();
+    	        param.setName("property");
+    	        param.addPart().setName("code").setValue(new CodeType(prop.getCode()));
+    	        param.addPart().setName("value").setValue(prop.getValue());
+    	    }
+    	}
     
     // Add extensions to lookup response
     private void addExtensionsToLookupResponse(Parameters retVal, CodeSystem codeSystem, ConceptDefinitionComponent concept) {
@@ -319,21 +346,37 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     private Parameters buildResultWithExtensions(boolean isValid, CodeType code, UriType system, 
                                                CodeSystem codeSystem, ConceptDefinitionComponent concept, String message) {
         Parameters result = new Parameters();
-        
-        // Basic validation result
+
         result.addParameter().setName("result").setValue(new BooleanType(isValid));
-        result.addParameter().setName("code").setValue(code);
-        result.addParameter().setName("system").setValue(system);
         
-        if (concept != null && concept.hasDisplay()) {
-            result.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
-        }
-        
-        result.addParameter().setName("message").setValue(new StringType(message));
-        
-        // Add extensions information if validation is successful
-        if (isValid && concept != null) {
-            addExtensionsToValidateResponse(result, codeSystem, concept);
+        if (!isValid) {
+            // 驗證失敗時應該回傳 issues 參數
+            Parameters.ParametersParameterComponent issuesParam = result.addParameter();
+            issuesParam.setName("issues");
+            
+            // 建立 OperationOutcome 作為 issues 的值
+            OperationOutcome outcome = new OperationOutcome();
+            outcome.addIssue()
+                   .setSeverity(OperationOutcome.IssueSeverity.ERROR)
+                   .setCode(OperationOutcome.IssueType.CODEINVALID)
+                   .setDetails(new CodeableConcept().setText(message));
+            
+            issuesParam.setResource(outcome);
+        } else {
+            // 驗證成功時才添加其他參數
+            result.addParameter().setName("code").setValue(code);
+            result.addParameter().setName("system").setValue(system);
+            
+            if (concept != null && concept.hasDisplay()) {
+                result.addParameter().setName("display").setValue(new StringType(concept.getDisplay()));
+            }
+            
+            result.addParameter().setName("message").setValue(new StringType(message));
+            
+            // 只有驗證成功時才添加 extensions
+            if (concept != null) {
+                addExtensionsToValidateResponse(result, codeSystem, concept);
+            }
         }
         
         return result;

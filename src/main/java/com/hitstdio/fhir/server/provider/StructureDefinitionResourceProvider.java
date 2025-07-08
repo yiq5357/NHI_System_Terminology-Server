@@ -9,8 +9,6 @@ public class StructureDefinitionResourceProvider extends BaseResourceProvider<St
 		super(theDaoRegistry);
 	}
 	
-	
-	
 	@Override
     public Class<StructureDefinition> getResourceType() {
         return StructureDefinition.class;
