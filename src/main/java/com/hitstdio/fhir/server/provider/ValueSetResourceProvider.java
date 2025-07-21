@@ -13,8 +13,8 @@ import org.hl7.fhir.r4.model.BooleanType;
 import org.hl7.fhir.r4.model.CanonicalType;
 import org.hl7.fhir.r4.model.CodeSystem;
 import org.hl7.fhir.r4.model.CodeType;
-import org.hl7.fhir.r4.model.DateTimeType;
 import org.hl7.fhir.r4.model.DateType;
+import org.hl7.fhir.r4.model.IdType;
 import org.hl7.fhir.r4.model.IntegerType;
 import org.hl7.fhir.r4.model.StringType;
 import org.hl7.fhir.r4.model.UriType;
@@ -24,6 +24,8 @@ import org.hl7.fhir.r4.model.ValueSet.ConceptReferenceDesignationComponent;
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
+import ca.uhn.fhir.model.api.TemporalPrecisionEnum;
+import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
@@ -46,8 +48,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    this.codeSystemDao = theDaoRegistry.getResourceDao(CodeSystem.class);
 	}
 
+    // Type-level Operation: /ValueSet/$expand
     @Operation(name = "$expand", idempotent = true)
-    public ValueSet expandValueSet(
+    public ValueSet expandValueSetTypeLevel(
             @OperationParam(name = "url") UriType theUrl,
             @OperationParam(name = "valueSetVersion") StringType theValueSetVersion, 
             @OperationParam(name = "filter") StringType theFilter, 
@@ -67,9 +70,56 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "check-system-version") List<UriType> theCheckSystemVersion,
             @OperationParam(name = "force-system-version") List<UriType> theForceSystemVersion,
             RequestDetails requestDetails) {
+        
+        return performExpandOperation(null, theUrl, theValueSetVersion, theFilter, theDate,
+                theOffset, theCount, theIncludeDesignations, theDesignation, theIncludeDefinition,
+                theActiveOnly, theExcludeNested, theExcludeNotForUI, theDisplayLanguageParam,
+                theExcludeSystem, theSystemVersion, theCheckSystemVersion, theForceSystemVersion,
+                requestDetails);
+    }
+
+    // Instance-level Operation: /ValueSet/[id]/$expand
+    @Operation(name = "$expand", idempotent = true)
+    public ValueSet expandValueSetInstanceLevel(
+            @IdParam IdType theId,
+            @OperationParam(name = "url") UriType theUrl,
+            @OperationParam(name = "valueSetVersion") StringType theValueSetVersion, 
+            @OperationParam(name = "filter") StringType theFilter, 
+            @OperationParam(name = "date") DateType theDate,
+            @OperationParam(name = "offset") IntegerType theOffset,
+            @OperationParam(name = "count") IntegerType theCount,
+            @OperationParam(name = "includeDesignations") BooleanType theIncludeDesignations,
+            @OperationParam(name = "designation") List<StringType> theDesignation,
+            @OperationParam(name = "includeDefinition") BooleanType theIncludeDefinition,
+            @OperationParam(name = "activeOnly") BooleanType theActiveOnly,
+            @OperationParam(name = "excludeNested") BooleanType theExcludeNested,
+            @OperationParam(name = "excludeNotForUI") BooleanType theExcludeNotForUI,
+            //@OperationParam(name = "excludePostCoordinated") BooleanType theExcludePostCoordinated,
+            @OperationParam(name = "displayLanguage") CodeType theDisplayLanguageParam,
+            @OperationParam(name = "exclude-system") List<CanonicalType> theExcludeSystem,
+            @OperationParam(name = "system-version") List<UriType> theSystemVersion,
+            @OperationParam(name = "check-system-version") List<UriType> theCheckSystemVersion,
+            @OperationParam(name = "force-system-version") List<UriType> theForceSystemVersion,
+            RequestDetails requestDetails) {
+        
+        return performExpandOperation(theId, theUrl, theValueSetVersion, theFilter, theDate,
+                theOffset, theCount, theIncludeDesignations, theDesignation, theIncludeDefinition,
+                theActiveOnly, theExcludeNested, theExcludeNotForUI, theDisplayLanguageParam,
+                theExcludeSystem, theSystemVersion, theCheckSystemVersion, theForceSystemVersion,
+                requestDetails);
+    }	
+
+      
+    private ValueSet performExpandOperation(IdType theId,UriType theUrl,StringType theValueSetVersion,StringType theFilter,DateType theDate,
+            IntegerType theOffset, IntegerType theCount, BooleanType theIncludeDesignations, List<StringType> theDesignation, BooleanType theIncludeDefinition,
+            BooleanType theActiveOnly, BooleanType theExcludeNested, BooleanType theExcludeNotForUI,
+            //@OperationParam(name = "excludePostCoordinated") BooleanType theExcludePostCoordinated,
+            CodeType theDisplayLanguageParam, List<CanonicalType> theExcludeSystem, List<UriType> theSystemVersion, List<UriType> theCheckSystemVersion,
+            List<UriType> theForceSystemVersion, RequestDetails requestDetails) {
+    	
     	//暫不實做
     	BooleanType theExcludePostCoordinated = null;
-
+  	
         String displayLanguageValue = null;
         if (theDisplayLanguageParam != null && theDisplayLanguageParam.hasValue()) {
             displayLanguageValue = theDisplayLanguageParam.getValueAsString();
@@ -112,38 +162,104 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         
         ValueSet result = new ValueSet();
         
+
         if (theIncludeDefinition != null && theIncludeDefinition.getValue()) {
-            result.setMeta(valueSet.getMeta());
-            result.setUrl(valueSet.getUrl());
-            result.setIdentifier(valueSet.getIdentifier());
-            result.setVersion(valueSet.getVersion());
-            result.setName(valueSet.getName());
-            result.setTitle(valueSet.getTitle());
-            result.setStatus(valueSet.getStatus());
-            result.setExperimental(valueSet.getExperimental());
-            result.setDate(valueSet.getDate());
-            result.setPublisher(valueSet.getPublisher());
-            result.setContact(valueSet.getContact());
-            result.setDescription(valueSet.getDescription());
-            result.setUseContext(valueSet.getUseContext());
-            result.setJurisdiction(valueSet.getJurisdiction());
-            result.setImmutable(valueSet.getImmutable());
-            result.setPurpose(valueSet.getPurpose());
-            result.setCopyright(valueSet.getCopyright());
-            result.setCompose(valueSet.getCompose());
-            result.setExtension(valueSet.getExtension());
+            if (valueSet.hasMeta()) {
+                result.setMeta(valueSet.getMeta());
+            }
+            if (valueSet.hasUrl()) {
+                result.setUrl(valueSet.getUrl());
+            }
+            if (valueSet.hasIdentifier()) {
+                result.setIdentifier(valueSet.getIdentifier());
+            }
+            if (valueSet.hasVersion()) {
+                result.setVersion(valueSet.getVersion());
+            }
+            if (valueSet.hasName()) {
+                result.setName(valueSet.getName());
+            }
+            if (valueSet.hasTitle()) {
+                result.setTitle(valueSet.getTitle());
+            }
+            if (valueSet.hasStatus()) {
+                result.setStatus(valueSet.getStatus());
+            }
+            if (valueSet.hasExperimental()) {
+                result.setExperimental(valueSet.getExperimental());
+            }
+            if (valueSet.hasDate()) {
+                result.setDate(valueSet.getDate());
+                if (result.getDateElement() != null) {
+                    result.getDateElement().setPrecision(TemporalPrecisionEnum.DAY);
+                }
+            }
+            if (valueSet.hasPublisher()) {
+                result.setPublisher(valueSet.getPublisher());
+            }
+            if (valueSet.hasContact()) {
+                result.setContact(valueSet.getContact());
+            }
+            if (valueSet.hasDescription()) {
+                result.setDescription(valueSet.getDescription());
+            }
+            if (valueSet.hasUseContext()) {
+                result.setUseContext(valueSet.getUseContext());
+            }
+            if (valueSet.hasJurisdiction()) {
+                result.setJurisdiction(valueSet.getJurisdiction());
+            }
+            if (valueSet.hasImmutable()) {
+                result.setImmutable(valueSet.getImmutable());
+            }
+            if (valueSet.hasPurpose()) {
+                result.setPurpose(valueSet.getPurpose());
+            }
+            if (valueSet.hasCopyright()) {
+                result.setCopyright(valueSet.getCopyright());
+            }
+            if (valueSet.hasCompose()) {
+                result.setCompose(valueSet.getCompose());
+            }
+            if (valueSet.hasExtension()) {
+                result.setExtension(valueSet.getExtension());
+            }
         } else {
-            result.setMeta(valueSet.getMeta());
-            result.setUrl(valueSet.getUrl());
-            result.setIdentifier(valueSet.getIdentifier());
-            result.setVersion(valueSet.getVersion());
-            result.setName(valueSet.getName());
-            result.setTitle(valueSet.getTitle());
-            result.setStatus(valueSet.getStatus());
-            result.setExperimental(valueSet.getExperimental());
-            result.setDate(valueSet.getDate());
-            result.setImmutable(valueSet.getImmutable());
+            if (valueSet.hasMeta()) {
+                result.setMeta(valueSet.getMeta());
+            }
+            if (valueSet.hasUrl()) {
+                result.setUrl(valueSet.getUrl());
+            }
+            if (valueSet.hasIdentifier()) {
+                result.setIdentifier(valueSet.getIdentifier());
+            }
+            if (valueSet.hasVersion()) {
+                result.setVersion(valueSet.getVersion());
+            }
+            if (valueSet.hasName()) {
+                result.setName(valueSet.getName());
+            }
+            if (valueSet.hasTitle()) {
+                result.setTitle(valueSet.getTitle());
+            }
+            if (valueSet.hasStatus()) {
+                result.setStatus(valueSet.getStatus());
+            }
+            if (valueSet.hasExperimental()) {
+                result.setExperimental(valueSet.getExperimental());
+            }
+            if (valueSet.hasDate()) {
+                result.setDate(valueSet.getDate());
+                if (result.getDateElement() != null) {
+                    result.getDateElement().setPrecision(TemporalPrecisionEnum.DAY);
+                }
+            }
+            if (valueSet.hasImmutable()) {
+                result.setImmutable(valueSet.getImmutable());
+            }
         }
+
         
         ValueSet.ValueSetExpansionComponent expansion = new ValueSet.ValueSetExpansionComponent();
         result.setExpansion(expansion);
@@ -244,7 +360,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
 
         if(theDate != null && theDate.getValue() != null){
-            expansion.addParameter().setName("date").setValue(new DateTimeType(theDate.getValue(), theDate.getPrecision(), theDate.getTimeZone()));
+            expansion.addParameter().setName("date").setValue(new DateType(theDate.getValue()));
         }
 
         if(theOffset != null){ 
@@ -506,6 +622,28 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     includeDesignationsParam, designationFilters,
                     displayLanguageValue); 
             }
+            
+            
+            /*boolean processChildren = true;
+
+            if (excludeNested != null && excludeNested.getValue()) {
+                processChildren = false;
+                if (isConceptAbstract(conceptDef)) {
+                    processChildren = true;
+                }
+            }
+
+            if (processChildren) {
+                for (CodeSystem.ConceptDefinitionComponent child : conceptDef.getConcept()) {
+                    processCodeSystemConcept(allCodes, system, child, filter,
+                        codeSystem, excludeNested, includeDesignationsParam,
+                        activeOnly, excludeNotForUI,
+                        designationFilters,
+                        displayLanguageValue);
+                }
+            }*/
+            
+            // 原本的excludeNested
             if(excludeNested == null || !excludeNested.getValue()) {
                 for(CodeSystem.ConceptDefinitionComponent child: conceptDef.getConcept()) {
                     processCodeSystemConcept(allCodes, system, child, filter,
@@ -515,8 +653,22 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         displayLanguageValue); 
                 }
             }
+            
         }
 
+    private boolean isConceptAbstract(CodeSystem.ConceptDefinitionComponent concept) {
+        if (concept == null || !concept.hasProperty()) {
+            return false;
+        }
+        for (CodeSystem.ConceptPropertyComponent prop : concept.getProperty()) {
+            if ("notSelectable".equals(prop.getCode()) && prop.getValue() instanceof BooleanType) {
+                if (((BooleanType) prop.getValue()).getValue()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     // 比對
     private boolean matchesFilter(String code, String display, StringType filter) {
