@@ -28,6 +28,7 @@ import com.hitstdio.fhir.server.provider.MessageHeaderResourceProvider;
 import com.hitstdio.fhir.server.provider.NamingSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.ObservationResourceProvider;
 import com.hitstdio.fhir.server.provider.OrganizationResourceProvider;
+import com.hitstdio.fhir.server.provider.ParametersResourceProvider;
 import com.hitstdio.fhir.server.provider.PatientResourceProvider;
 import com.hitstdio.fhir.server.provider.PractitionerResourceProvider;
 import com.hitstdio.fhir.server.provider.PractitionerRoleResourceProvider;
@@ -82,6 +83,7 @@ public class TestServerR4AppCtx {
 		retVal.add(new ConceptMapResourceProvider(myDaoRegistry));
 		retVal.add(new TerminologyCapabilitiesResourceProvider(myDaoRegistry));
 		retVal.add(new StructureDefinitionResourceProvider(myDaoRegistry));
+		retVal.add(new ParametersResourceProvider(myDaoRegistry));
 		return retVal;
 	}
 

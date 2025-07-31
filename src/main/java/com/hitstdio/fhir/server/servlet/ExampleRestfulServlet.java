@@ -13,7 +13,6 @@ import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 
-import com.hitstdio.fhir.server.provider.CodeSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.r4.TestServerR4AppCtx;
 
