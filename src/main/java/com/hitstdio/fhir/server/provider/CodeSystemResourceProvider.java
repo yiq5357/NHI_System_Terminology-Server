@@ -87,7 +87,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return dao.patch(theId, null, patchType, thePatchBody, null, systemRequestDetails);
     }
     
-    // $lookup Operation    
+ // $lookup Operation    
     @Operation(name = "$lookup", idempotent = true)
     public IBaseResource lookup(
             @OperationParam(name = "code") CodeType code,
@@ -137,8 +137,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         
         return extractFromParameters(code, system, version);
     }
-    
-    // 如果有coding
+
+    // 從 Coding 物件中提取參數
     private NormalizedParams extractFromCoding(Coding coding, StringType version) {
         String codeValue = coding.getCode();
         String systemValue = coding.getSystem();
@@ -154,8 +154,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         
         return new NormalizedParams(codeValue, systemValue, versionValue);
     }
-    
-    // 沒有coding
+
+    // 從獨立參數中提取
     private NormalizedParams extractFromParameters(CodeType code, UriType system, StringType version) {
         if (code == null || code.isEmpty()) {
             throw new UnprocessableEntityException("Code parameter is required");
@@ -170,219 +170,483 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             version != null ? version.getValue() : null
         );
     }
-    
+
+    // 構建 $lookup 操作的回應
     private Parameters buildLookupResponse(CodeSystem codeSystem, 
                                           ConceptDefinitionComponent concept,
                                           List<StringType> requestedProperties) {
-        var response = new Parameters();
+        
+    	// 驗證版本號是否符合
+        if (codeSystem.hasVersion() && requestedProperties != null) {
+            String requestedVersion = requestedProperties.stream()
+                .filter(p -> "version".equalsIgnoreCase(p.getValue()))
+                .map(StringType::getValue)
+                .findFirst()
+                .orElse(null);
+            if (requestedVersion != null && !requestedVersion.equals(codeSystem.getVersion())) {
+                throw new InvalidRequestException(
+                    "Requested version '" + requestedVersion + "' does not match CodeSystem version '" + codeSystem.getVersion() + "'"
+                );
+            }
+        }
+    	
+    	var response = new Parameters();
         
         addBasicLookupParameters(response, codeSystem, concept);
-        addDesignations(response, concept);
+        addDesignations(response, codeSystem, concept);
         addProperties(response, concept, codeSystem, requestedProperties);
         
         return response;
     }
-    
+
+    // 添加基本的 lookup 參數
     private void addBasicLookupParameters(Parameters response, CodeSystem codeSystem, 
                                          ConceptDefinitionComponent concept) {
-        // Add abstract property first if exists
-        addAbstractProperty(response, concept);
+        // abstract (可選，如果存在的話)
+        addAbstractParameter(response, concept);
         
+        // code - 必要
         response.addParameter("code", new CodeType(concept.getCode()));
         
+        // display - 如果存在
         if (concept.hasDisplay()) {
             response.addParameter("display", new StringType(concept.getDisplay()));
         }
         
+        // name - CodeSystem 名稱
         if (codeSystem.hasName()) {
             response.addParameter("name", new StringType(codeSystem.getName()));
         }
         
+        // system - CodeSystem URL，必要
         response.addParameter("system", new UriType(codeSystem.getUrl()));
         
+        // version - CodeSystem 版本
         if (codeSystem.hasVersion()) {
             response.addParameter("version", new StringType(codeSystem.getVersion()));
         }
     }
-    
-    private void addAbstractProperty(Parameters response, ConceptDefinitionComponent concept) {
+
+    // 添加 abstract 參數
+    private void addAbstractParameter(Parameters response, ConceptDefinitionComponent concept) {
         concept.getProperty().stream()
             .filter(prop -> "abstract".equals(prop.getCode()))
+            .filter(prop -> prop.getValue() instanceof BooleanType)
             .findFirst()
-            .ifPresent(prop -> response.addParameter("abstract", prop.getValue()));
+            .ifPresent(abstractProp -> {
+                BooleanType abstractValue = (BooleanType) abstractProp.getValue();
+                response.addParameter("abstract", abstractValue);
+            });
     }
-    
-    private void addDesignations(Parameters response, ConceptDefinitionComponent concept) {
-        // Regular designations
+
+    // 添加指定項目
+    private void addDesignations(Parameters response, CodeSystem codeSystem, ConceptDefinitionComponent concept) {
+        // 標準指定項目
         concept.getDesignation().forEach(designation -> 
             addDesignationParameter(response, designation));
         
-        // Extension-based designations
+     // 自動補一個基於 display 的 designation
+        if (concept.hasDisplay()) {
+            var param = response.addParameter().setName("designation");
+
+            // 語言：先嘗試 concept extension -> CodeSystem.language -> 預設 en
+            String languageCode = null;
+            if (concept.hasExtension("http://hl7.org/fhir/StructureDefinition/language")) {
+                languageCode = concept.getExtensionString("http://hl7.org/fhir/StructureDefinition/language");
+            }
+            if (languageCode == null || languageCode.isBlank()) {
+                if (codeSystem.hasLanguage()) {
+                    languageCode = codeSystem.getLanguage();
+                } else {
+                    languageCode = "en"; // 預設值
+                }
+            }
+
+            param.addPart()
+                .setName("language")
+                .setValue(new CodeType(languageCode));
+
+            param.addPart()
+                .setName("use")
+                .setValue(new Coding()
+                    .setSystem("http://terminology.hl7.org/CodeSystem/designation-usage")
+                    .setCode("display"));
+
+            param.addPart()
+                .setName("value")
+                .setValue(new StringType(concept.getDisplay()));
+        }
+        
+        // 基於擴展的指定項目
         addExtensionAsDesignation(response, concept, ExtensionUrls.CODESYSTEM_ALTERNATE.getUrl(), "alternate");
         addExtensionAsDesignation(response, concept, ExtensionUrls.CODESYSTEM_LABEL.getUrl(), "label");
     }
-    
+
+    // 添加指定項目參數
     private void addDesignationParameter(Parameters response, ConceptDefinitionDesignationComponent designation) {
         var param = response.addParameter().setName("designation");
         
         if (designation.hasUse()) {
             param.addPart()
-            		.setName("use")
-            		.setValue(designation.getUse());
+                .setName("use")
+                .setValue(designation.getUse());
         }
         
         if (designation.hasLanguage()) {
             param.addPart()
-            	.setName("language")
-            	.setValue(new CodeType(designation.getLanguage()));
+                .setName("language")
+                .setValue(new CodeType(designation.getLanguage()));
         }
         
         param.addPart()
-        		.setName("value")
-        		.setValue(new StringType(designation.getValue()));
+            .setName("value")
+            .setValue(new StringType(designation.getValue()));
     }
-    
+
+    // 將擴展作為指定項目添加
     private void addExtensionAsDesignation(Parameters response, ConceptDefinitionComponent concept,
                                          String extensionUrl, String useCode) {
         concept.getExtensionsByUrl(extensionUrl).forEach(ext -> {
             var param = response.addParameter().setName("designation");
             param.addPart()
-            		.setName("use")
-            		.setValue(new Coding().setCode(useCode));
+                .setName("use")
+                .setValue(new Coding().setCode(useCode));
             param.addPart()
-            		.setName("value")
-            		.setValue(ext.getValue());
+                .setName("value")
+                .setValue(ext.getValue());
         });
     }
-    
+
+    // 添加屬性
     private void addProperties(Parameters response, ConceptDefinitionComponent concept,
                              CodeSystem codeSystem, List<StringType> requestedProperties) {
         var requestedCodes = getRequestedPropertyCodes(requestedProperties);
         
-        // concept底下的property
-        concept.getProperty().stream()
-            .filter(prop -> requestedCodes.isEmpty() || requestedCodes.contains(prop.getCode()))
-            .forEach(prop -> addPropertyParameter(response, prop));
+        // 添加所有標準屬性
+        addStandardProperties(response, concept, requestedCodes);
         
-        // Extension的property
-        addPropertiesFromExtensions(response, concept, codeSystem, requestedCodes);
-        
-        // 子概念的properties
+        // 添加子概念作為 child 屬性
         addChildConceptProperties(response, concept, requestedCodes);
+        
+        // 添加父概念作為 parent 屬性
+        addParentConceptProperties(response, concept, codeSystem, requestedCodes);
+        
+        // 基於擴展的屬性
+        addPropertiesFromExtensions(response, concept, codeSystem, requestedCodes);
+    }
+
+    // 添加標準屬性
+    private void addStandardProperties(Parameters response, ConceptDefinitionComponent concept, 
+                                     Set<String> requestedCodes) {
+    	// 使用 AtomicBoolean 或先檢查屬性存在性
+        boolean hasInactive = concept.getProperty().stream()
+                                    .anyMatch(prop -> "inactive".equals(prop.getCode()));
+        boolean hasStatus = concept.getProperty().stream()
+                                  .anyMatch(prop -> "status".equals(prop.getCode()));
+    	
+    	// 處理所有概念屬性
+        concept.getProperty().forEach(prop -> {
+            String code = prop.getCode();
+            
+            // 如果沒有指定特定屬性，或者該屬性在請求列表中
+            if (requestedCodes.isEmpty() || requestedCodes.contains(code)) {
+                // 特殊處理 abstract - 它已經在頂層處理了，這裡不重複
+                if (!"abstract".equals(code)) {
+                    addPropertyParameter(response, prop, concept, code);
+                }
+            }
+        });
+        
+        var param = response.addParameter().setName("property");
+        if(!concept.getDefinition().isEmpty()) {
+        	// code 部分
+            param.addPart()
+                 .setName("code")
+                 .setValue(new CodeType("definition"));
+            
+            // value 部分
+            param.addPart()
+                 .setName("value")
+                 .setValue(new StringType(concept.getDefinition()));
+        }
+        
+        // 如果沒有 inactive 屬性，但有 status 屬性，則根據 status 推導 inactive
+        if (!hasInactive && hasStatus && 
+            (requestedCodes.isEmpty() || requestedCodes.contains("inactive"))) {
+            addInactivePropertyFromStatus(response, concept);
+        }
+        // 如果既沒有 inactive 也沒有 status，則添加預設的 inactive 屬性
+        else if (!hasInactive && !hasStatus && 
+                 (requestedCodes.isEmpty() || requestedCodes.contains("inactive"))) {
+            addDefaultInactiveProperty(response);
+        }
+    }
+
+    // 添加屬性參數
+    private void addPropertyParameter(Parameters response, ConceptPropertyComponent prop, 
+                                    ConceptDefinitionComponent concept, String code) {
+        var param = response.addParameter().setName("property");
+        
+        // code 部分
+        param.addPart()
+             .setName("code")
+             .setValue(new CodeType(prop.getCode()));
+        
+        // value 部分
+        param.addPart()
+             .setName("value")
+             .setValue(prop.getValue());
+
     }
     
+    // 根據 status 屬性推導 inactive 屬性
+    private void addInactivePropertyFromStatus(Parameters response, ConceptDefinitionComponent concept) {
+        Optional<ConceptPropertyComponent> statusProp = concept.getProperty().stream()
+            .filter(prop -> "status".equals(prop.getCode()))
+            .findFirst();
+        
+        if (statusProp.isPresent()) {
+            var statusValue = statusProp.get().getValue();
+            boolean isInactive = false;
+            
+            // 判斷 status 值來決定 inactive 狀態
+            if (statusValue instanceof CodeType) {
+                String statusCode = ((CodeType) statusValue).getValue();
+                // retired, deprecated, withdrawn 等狀態視為 inactive
+                isInactive = "retired".equals(statusCode) || 
+                            "deprecated".equals(statusCode) || 
+                            "withdrawn".equals(statusCode);
+            } else if (statusValue instanceof StringType) {
+                String statusString = ((StringType) statusValue).getValue();
+                // 也支援 StringType 的情況
+                isInactive = "retired".equals(statusString) || 
+                            "deprecated".equals(statusString) || 
+                            "withdrawn".equals(statusString);
+            }
+            
+            // 添加推導的 inactive 屬性
+            var param = response.addParameter().setName("property");
+            param.addPart()
+                .setName("code")
+                .setValue(new CodeType("inactive"));
+            param.addPart()
+                .setName("value")
+                .setValue(new BooleanType(isInactive));
+        }
+    }
+   
+    // 添加預設的 inactive 屬性
+    private void addDefaultInactiveProperty(Parameters response) {
+        var param = response.addParameter().setName("property");
+        param.addPart()
+            .setName("code")
+            .setValue(new CodeType("inactive"));
+        param.addPart()
+            .setName("value")
+            .setValue(new BooleanType(false));
+    }
+
+    // 添加子概念屬性
+    private void addChildConceptProperties(Parameters response, ConceptDefinitionComponent concept, 
+                                         Set<String> requestedCodes) {
+        if (concept.hasConcept() && !concept.getConcept().isEmpty() && 
+            (requestedCodes.isEmpty() || requestedCodes.contains("child"))) {
+            
+            concept.getConcept().forEach(childConcept -> {
+                var param = response.addParameter().setName("property");
+                
+                param.addPart()
+                    .setName("code")
+                    .setValue(new CodeType("child"));
+
+                // 添加描述（如果子概念有 display）
+                if (childConcept.hasDisplay()) {
+                    param.addPart()
+                        .setName("description")
+                        .setValue(new StringType(childConcept.getDisplay()));
+                }
+                
+                param.addPart()
+                    .setName("value")
+                    .setValue(new CodeType(childConcept.getCode()));
+            });
+        }
+    }
+
+    // 添加父概念屬性
+    private void addParentConceptProperties(Parameters response, ConceptDefinitionComponent concept, 
+    		                                CodeSystem codeSystem, Set<String> requestedCodes) {
+        if (requestedCodes.isEmpty() || requestedCodes.contains("parent")) {
+        	// 首先檢查概念本身是否有 parent 屬性（明確定義的父概念）
+        	concept.getProperty().stream()
+                .filter(prop -> "parent".equals(prop.getCode()))
+                .forEach(prop -> {
+                	// 嘗試找到父概念的 display 資訊
+                    String parentCode = null;
+                    if (prop.getValue() instanceof CodeType) {
+                        parentCode = ((CodeType) prop.getValue()).getValue();
+                    } else if (prop.getValue() instanceof StringType) {
+                        parentCode = ((StringType) prop.getValue()).getValue();
+                    }
+                    
+                    String parentDisplay = null;
+                    if (parentCode != null) {
+                        parentDisplay = findConceptDisplay(codeSystem, parentCode);
+                    }
+                	
+                	//寫入propaerty
+                	var param = response.addParameter().setName("property");
+                    
+                    param.addPart()
+                        .setName("code")
+                        .setValue(new CodeType("parent"));
+                    
+                    if (parentDisplay != null) {
+                        param.addPart()
+                            .setName("description")
+                            .setValue(new StringType(parentDisplay));
+                    }
+                    
+                    param.addPart()
+                        .setName("value")
+                        .setValue(prop.getValue());
+                });
+        	
+        	// 如果沒有明確的 parent 屬性，則透過層級結構查找父概念
+            if (concept.getProperty().stream().noneMatch(prop -> "parent".equals(prop.getCode()))) {
+                findParentConceptsInHierarchy(response, concept, codeSystem);
+            }
+        }
+    }
+    
+    // 根據代碼查找概念的 display
+    private String findConceptDisplay(CodeSystem codeSystem, String code) {
+        return findConceptDisplayInList(codeSystem.getConcept(), code);
+    }
+    
+    // 遞迴在概念清單中查找指定代碼的 display
+    private String findConceptDisplayInList(List<ConceptDefinitionComponent> concepts, String code) {
+        for (ConceptDefinitionComponent concept : concepts) {
+            if (code.equals(concept.getCode())) {
+                return concept.getDisplay();
+            }
+            
+            // 遞迴搜尋子概念
+            String display = findConceptDisplayInList(concept.getConcept(), code);
+            if (display != null) {
+                return display;
+            }
+        }
+        return null;
+    }
+    
+    // 在層級結構中查找父概念
+    private void findParentConceptsInHierarchy(Parameters response, ConceptDefinitionComponent targetConcept, 
+                                             CodeSystem codeSystem) {
+        String targetCode = targetConcept.getCode();
+        
+        // 遍歷 CodeSystem 的所有頂層概念
+        for (ConceptDefinitionComponent rootConcept : codeSystem.getConcept()) {
+            ConceptDefinitionComponent parent = findParentInConcept(rootConcept, targetCode, null);
+            if (parent != null) {
+                addParentPropertyParameter(response, parent);
+                break; // 找到父概念後退出
+            }
+        }
+    }
+    
+    // 遞迴查找指定代碼的父概念
+    private ConceptDefinitionComponent findParentInConcept(ConceptDefinitionComponent currentConcept, 
+                                                         String targetCode, 
+                                                         ConceptDefinitionComponent potentialParent) {
+        // 如果目前概念就是目標概念，回傳其父概念
+        if (targetCode.equals(currentConcept.getCode())) {
+            return potentialParent;
+        }
+        
+        // 遞迴搜尋子概念
+        for (ConceptDefinitionComponent childConcept : currentConcept.getConcept()) {
+            ConceptDefinitionComponent parent = findParentInConcept(childConcept, targetCode, currentConcept);
+            if (parent != null) {
+                return parent;
+            }
+        }
+        
+        return null;
+    }
+    
+    // 新增父概念屬性參數
+    private void addParentPropertyParameter(Parameters response, ConceptDefinitionComponent parentConcept) {
+        var param = response.addParameter().setName("property");
+        
+        param.addPart()
+            .setName("code")
+            .setValue(new CodeType("parent"));
+        
+        // 新增父概念的 display 作為描述
+        if (parentConcept.hasDisplay()) {
+            param.addPart()
+                .setName("description")
+                .setValue(new StringType(parentConcept.getDisplay()));
+        }
+        
+        param.addPart()
+            .setName("value")
+            .setValue(new CodeType(parentConcept.getCode()));
+    }
+
+    // 獲取請求的屬性代碼集合
     private Set<String> getRequestedPropertyCodes(List<StringType> requestedProperties) {
         return requestedProperties != null ? 
             requestedProperties.stream()
-                .map(StringType::getValue)   // 提取每個 StringType 的字串值
-                .collect(Collectors.toSet()) :  // 收集成 Set
-            Collections.emptySet(); // 如果為 null 則回傳空集合
+                .map(StringType::getValue)
+                .collect(Collectors.toSet()) :
+            Collections.emptySet();
     }
-    
-    private void addPropertyParameter(Parameters response, ConceptPropertyComponent prop) {
-        var param = response.addParameter().setName("property");
-        param.addPart()
-				.setName("code")
-				.setValue(new CodeType(prop.getCode()));
-        
-        // Add description if available
-        Optional.ofNullable(prop.getExtensionByUrl(ExtensionUrls.PROPERTY_DESCRIPTION.getUrl()))
-            .filter(Extension::hasValue) //確保只有在 extension 有值時才會進一步呼叫 .getValue()
-            .ifPresent(descExt -> param.addPart()
-            							.setName("description")
-            							.setValue(descExt.getValue()));
-        
-        param.addPart()
-        		.setName("value")
-        		.setValue(prop.getValue());
-    }
-    
-    //從概念定義的擴展中添加屬性到回應參數中
+
+    // 從擴展中添加屬性
     private void addPropertiesFromExtensions(Parameters response, ConceptDefinitionComponent concept,
                                            CodeSystem codeSystem, Set<String> requestedCodes) {
         
-    	// 定義擴展 URL 與屬性代碼的映射關係
-        // 這個 Map 將 FHIR 擴展的完整 URL 對應到簡化的屬性代碼名稱
-    	var extensionMappings = Map.of(
-            ExtensionUrls.CODESYSTEM_CONCEPT_ORDER.getUrl(), "conceptOrder",  // 概念排序
-            ExtensionUrls.ITEM_WEIGHT.getUrl(), "itemWeight",				  // 項目權重
-            ExtensionUrls.RENDERING_STYLE.getUrl(), "renderingStyle",		  // 渲染樣式
-            ExtensionUrls.RENDERING_XHTML.getUrl(), "renderingXhtml"		  // XHTML 渲染
+        // 定義擴展 URL 與屬性代碼的映射關係
+        var extensionMappings = Map.of(
+            ExtensionUrls.CODESYSTEM_CONCEPT_ORDER.getUrl(), "conceptOrder",
+            ExtensionUrls.ITEM_WEIGHT.getUrl(), "itemWeight",
+            ExtensionUrls.RENDERING_STYLE.getUrl(), "renderingStyle",
+            ExtensionUrls.RENDERING_XHTML.getUrl(), "renderingXhtml"
         );
         
-    	// 遍歷所有的擴展映射
+        // 遍歷所有的擴展映射
         extensionMappings.forEach((extensionUrl, propertyCode) -> {
-        	// 檢查是否需要處理此屬性：
-            // 1. 如果 requestedCodes 為空，表示要處理所有屬性
-            // 2. 或者該屬性代碼在請求的代碼集合中
             if (requestedCodes.isEmpty() || requestedCodes.contains(propertyCode)) {
-            	// 將擴展作為屬性添加到回應中
-            	addExtensionAsProperty(response, concept, extensionUrl, propertyCode);
+                addExtensionAsProperty(response, concept, extensionUrl, propertyCode);
             }
         });
         
         // 特殊處理 SNOMED CT 代碼系統的描述 ID
-        // 只有當代碼系統是 SNOMED CT 且符合請求條件時才處理
         if (isSnomedCT(codeSystem.getUrl()) && 
             (requestedCodes.isEmpty() || requestedCodes.contains("sctDescId"))) {
-        	// 添加 SNOMED CT 描述 ID 作為屬性
-        	addExtensionAsProperty(response, concept, ExtensionUrls.CODING_SCTDESCID.getUrl(), "sctDescId");
+            addExtensionAsProperty(response, concept, ExtensionUrls.CODING_SCTDESCID.getUrl(), "sctDescId");
         }
     }
-    
-    // 將概念的擴展屬性添加到 Parameters 回應中
+
+    // 將擴展作為屬性添加
     private void addExtensionAsProperty(Parameters response, ConceptDefinitionComponent concept,
                                       String extensionUrl, String propertyCode) {
-    	// 使用 Optional 鏈式操作來安全地處理可能為 null 的值
-    	Optional.ofNullable(concept.getExtensionByUrl(extensionUrl))    // 根據 URL 獲取擴展，可能為 null
-            .filter(Extension::hasValue)								// 過濾出有值的擴展
-            .ifPresent(ext -> {											// 如果擴展存在且有值，則執行以下操作
-            	// 在回應中添加一個新的 "property" 參數
-            	var param = response.addParameter().setName("property");
-            	
-            	// 添加 "code" 部分，包含屬性的代碼
-            	param.addPart()
-                		.setName("code")
-                		.setValue(new CodeType(propertyCode));
+        Optional.ofNullable(concept.getExtensionByUrl(extensionUrl))
+            .filter(Extension::hasValue)
+            .ifPresent(ext -> {
+                var param = response.addParameter().setName("property");
                 
-            	// 添加 "value" 部分，包含擴展的實際值
-            	param.addPart()
-                		.setName("value")
-                		.setValue(ext.getValue());
+                param.addPart()
+                    .setName("code")
+                    .setValue(new CodeType(propertyCode));
+                
+                param.addPart()
+                    .setName("value")
+                    .setValue(ext.getValue());
             });
     }
-    
-    // 處理子概念屬性
-    // 檢查concept中是否包含子概念，如果有則將其作為子代碼顯示
-    private void addChildConceptProperties(Parameters response, ConceptDefinitionComponent concept, Set<String> requestedCodes) {
-        // 檢查是否有子概念
-        if (concept.hasConcept() && !concept.getConcept().isEmpty()) {
-            // 如果沒有特定請求的屬性，或者請求了"child"屬性
-            if (requestedCodes.isEmpty() || requestedCodes.contains("child")) {
-                // 遍歷所有子概念
-                concept.getConcept().forEach(childConcept -> {
-                    addChildConceptAsProperty(response, childConcept);
-                });
-            }
-        }
-    }
-
-    // 將子概念作為屬性添加到回應中
-    private void addChildConceptAsProperty(Parameters response, ConceptDefinitionComponent childConcept) {
-        var param = response.addParameter().setName("property");
-        
-        // 設定代碼為"child"，標明這是子代碼
-        param.addPart()
-        	.setName("code")
-            .setValue(new CodeType("child"));
-        
-        // 設定值為子概念的代碼
-        param.addPart()
-            .setName("value")
-            .setValue(new CodeType(childConcept.getCode()));
-    }
-
-    
     // $validate-code Operation    
     @Operation(name = "$validate-code", idempotent = true)
     public Parameters validateCode(
@@ -392,37 +656,127 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             @OperationParam(name = "version") StringType version,
             @OperationParam(name = "display") StringType display,
             @OperationParam(name = "coding") Coding coding,
-            @OperationParam(name = "codeableConcept") CodeableConcept codeableConcept
+            @OperationParam(name = "codeableConcept") CodeableConcept codeableConcept,
+            @OperationParam(name = "valueSet") ValueSet valueSet,
+            @OperationParam(name = "url") UriType valueSetUrl,
+            @OperationParam(name = "valueSetVersion") StringType valueSetVersion,
+            @OperationParam(name = "displayLanguage") CodeType displayLanguage
     ) {
-        
         try {
-            var params = extractValidationParams(code, system, display, coding, codeableConcept);
-            validateValidationParams(params.code(), params.system(), resourceId);
-            
-            var codeSystem = findCodeSystemForValidation(resourceId, params, version);
-            var concept = findConceptRecursive(codeSystem.getConcept(), params.code().getValue());
-            
-            if (concept == null) {
-                return buildValidationResult(false, params.code(), params.system(), null, 
-                    "Code '" + params.code().getValue() + "' not found in the specified CodeSystem");
+            // 解析輸入參數
+            var paramsList = extractMultipleValidationParams(code, system, display, coding, codeableConcept);
+
+            boolean anyValid = false;
+            ConceptDefinitionComponent matchedConcept = null;
+            CodeSystem matchedCodeSystem = null;
+
+            for (var params : paramsList) {
+                validateValidationParams(params.code(), params.system(), resourceId);
+
+                // 若提供 ValueSet，先驗證該 code 是否在 ValueSet 中
+                if (valueSet != null || valueSetUrl != null) {
+                    if (isCodeInValueSet(params.code().getValue(), params.system().getValue(), valueSet, valueSetUrl, valueSetVersion)) {
+                        anyValid = true;
+                        break;
+                    }
+                }
+
+                var codeSystem = findCodeSystemForValidation(resourceId, params, version);
+                var concept = findConceptRecursive(codeSystem.getConcept(), params.code().getValue());
+
+                if (concept != null) {
+                    matchedConcept = concept;
+                    matchedCodeSystem = codeSystem;
+
+                    boolean isValidDisplay = isDisplayValid(concept, params.display());
+                    anyValid = isValidDisplay || (params.display() == null || params.display().isEmpty());
+                    if (anyValid) break;
+                }
             }
+
+            if (!anyValid) {
+                return buildValidationError(false, code, system, "Code not found in specified CodeSystem/ValueSet");
+            }
+
+            // 準備顯示語言的 display
+            String resolvedDisplay = getDisplayForLanguage(matchedConcept, displayLanguage);
+
+            // 準備訊息
+            String message = "Code validation successful";
+            if (display != null && !display.isEmpty() && !display.getValue().equals(resolvedDisplay)) {
+                message = String.format("Code is valid but display '%s' does not match expected display '%s'",
+                        display.getValue(), resolvedDisplay);
+            }
+
+            // 建立成功回應
+            Parameters result = buildValidationResultWithExtensions(
+                    true, code, system, matchedCodeSystem, matchedConcept, message);
+
+            // 回應 abstract 屬性
+            matchedConcept.getProperty().stream()
+                    .filter(prop -> "abstract".equals(prop.getCode()))
+                    .filter(prop -> prop.getValue() instanceof BooleanType)
+                    .findFirst()
+                    .ifPresent(abstractProp -> {
+                        BooleanType abstractValue = (BooleanType) abstractProp.getValue();
+                        result.addParameter("abstract", abstractValue);
+                    });
             
-            boolean isValid = isDisplayValid(concept, params.display());
-            String message = isValid ? "Code validation successful" : 
-                           "Code is valid but display '" + params.display().getValue() + "' does not match expected display '" + concept.getDisplay() + "'";
-            
-            return buildValidationResultWithExtensions(isValid, params.code(), params.system(), 
-                                                     codeSystem, concept, message);
-            
-        } catch (InvalidRequestException e) {
-            return buildValidationError(false, code, system, e.getMessage());
-        } catch (ResourceNotFoundException e) {
+            // displayLanguage 指定時覆蓋 display
+            if (displayLanguage != null && resolvedDisplay != null) {
+                result.addParameter("display", new StringType(resolvedDisplay));
+            }
+
+            return result;
+
+        } catch (InvalidRequestException | ResourceNotFoundException e) {
             return buildValidationError(false, code, system, e.getMessage());
         } catch (Exception e) {
             return buildValidationError(false, code, system, "Internal error: " + e.getMessage());
         }
     }
     
+    private List<ValidationParams> extractMultipleValidationParams(CodeType code, UriType system, StringType display,
+            Coding coding, CodeableConcept codeableConcept) {
+		List<ValidationParams> paramsList = new ArrayList<>();
+		
+		if (coding != null) {
+			paramsList.add(new ValidationParams(coding.getCodeElement(), coding.getSystemElement(), coding.getDisplayElement()));
+		}
+		
+		if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()) {
+			for (Coding c : codeableConcept.getCoding()) {
+				paramsList.add(new ValidationParams(c.getCodeElement(), c.getSystemElement(), c.getDisplayElement()));
+			}
+		}
+		
+		if (code != null) {
+			paramsList.add(new ValidationParams(code, system, display));
+		}
+		
+			return paramsList;
+		}
+		
+		private boolean isCodeInValueSet(String code, String system, ValueSet valueSet,
+				                         UriType valueSetUrl, StringType valueSetVersion) {
+		// TODO: 這裡要呼叫你的 Terminology Service 去檢查 code 是否在 ValueSet 中
+		// 這可能需要用 $expand 或本地快取的 ValueSet 概念
+		return false; // 預設 false
+		}
+		
+		private String getDisplayForLanguage(ConceptDefinitionComponent concept, CodeType displayLanguage) {
+			if (displayLanguage == null || concept == null) {
+				return concept != null ? concept.getDisplay() : null;
+		}
+		String lang = displayLanguage.getValue();
+			for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
+				if (lang.equalsIgnoreCase(desig.getLanguage())) {
+					return desig.getValue();
+				}
+		}
+			return concept.getDisplay();
+		}
+		    
     private ValidationParams extractValidationParams(CodeType code, UriType system, StringType display,
                                                    Coding coding, CodeableConcept codeableConcept) {
         if (coding != null) {
