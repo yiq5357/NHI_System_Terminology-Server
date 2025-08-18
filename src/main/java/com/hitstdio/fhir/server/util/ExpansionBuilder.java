@@ -231,11 +231,14 @@ public class ExpansionBuilder {
 	private void addPropertyDeclarations(ValueSetExpansionComponent expansion, ValueSet sourceValueSet,
 			ExpansionRequest request) {
 
-		if (request.getProperty() == null || request.getProperty().isEmpty()) {
+		List<CodeType> allPropertiesToInclude = request.getProperty();
+
+		if (allPropertiesToInclude == null || allPropertiesToInclude.isEmpty()) {
 			return;
 		}
 
 		String systemUrl = null;
+		CodeSystem codeSystem = null;
 		if (sourceValueSet.hasCompose()) {
 			for (ValueSet.ConceptSetComponent include : sourceValueSet.getCompose().getInclude()) {
 				if (include.hasSystem()) {
@@ -244,22 +247,46 @@ public class ExpansionBuilder {
 				}
 			}
 		}
-
 		if (systemUrl == null) {
 			return;
 		}
-
-
-		CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, null, request);
-
+		codeSystem = resourceFinder.findCodeSystem(systemUrl, null, request);
 		if (codeSystem == null) {
 			return;
 		}
 
-		Map<String, String> propertyUris = buildPropertyUriMap(codeSystem);
+		final Set<String> definedPropertyCodes = codeSystem.getProperty().stream()
+				.map(CodeSystem.PropertyComponent::getCode).collect(Collectors.toSet());
 
-		for (CodeType reqProp : request.getProperty()) {
-			String code = reqProp.getCode();
+		Set<String> explicitlyRequestedCodes = new HashSet<>();
+		Parameters parameters = request.getParameters();
+		if (parameters != null) {
+			for (Parameters.ParametersParameterComponent param : parameters.getParameter()) {
+				if ("property".equals(param.getName()) && param.hasValue() && param.getValue() instanceof CodeType) {
+					explicitlyRequestedCodes.add(((CodeType) param.getValue()).getCode());
+				}
+			}
+		}
+
+		List<CodeType> propertiesToDeclare = allPropertiesToInclude.stream().filter(prop -> {
+			String code = prop.getCode();
+			boolean isExplicitlyRequested = explicitlyRequestedCodes.contains(code);
+
+			if (!isExplicitlyRequested) {
+				return true;
+			}
+
+			return !definedPropertyCodes.contains(code);
+		}).collect(Collectors.toList());
+
+
+		if (propertiesToDeclare.isEmpty()) {
+			return;
+		}
+
+		Map<String, String> propertyUris = buildPropertyUriMap(codeSystem);
+		for (CodeType propToDeclare : propertiesToDeclare) {
+			String code = propToDeclare.getCode();
 			if (propertyUris.containsKey(code)) {
 				addPropertyDeclaration(expansion, code, propertyUris.get(code));
 			}

@@ -1,6 +1,7 @@
 package com.hitstdio.fhir.server.util;
 
 import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionContainsComponent;
 
 import java.util.*;
@@ -28,13 +29,14 @@ public class ConceptComponentBuilder {
             CodeSystem codeSystem,
             CodeSystem.ConceptDefinitionComponent conceptDef,
             ExpansionRequest request) {
-        
+    	preprocessConceptExtensions(conceptDef);
+    	
         ValueSetExpansionContainsComponent component = new ValueSetExpansionContainsComponent();
         component.setSystem(codeSystem.getUrl());
         component.setCode(conceptDef.getCode());
         
         CodeSystem.ConceptDefinitionComponent mergedConceptDef = 
-            mergeWithSupplements(conceptDef, request);
+                mergeWithSupplements(conceptDef, request);
         
         processDisplay(component, mergedConceptDef, codeSystem, request);
         setConceptFlags(component, mergedConceptDef, codeSystem);
@@ -56,7 +58,24 @@ public class ConceptComponentBuilder {
     }
 
 
-    private boolean isKnownNonPropertyExtension(String url) {
+    private void preprocessConceptExtensions(CodeSystem.ConceptDefinitionComponent conceptDef) {
+        if (!conceptDef.hasExtension()) {
+            return;
+        }
+        
+        for (Extension ext : new ArrayList<>(conceptDef.getExtension())) {
+            getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(propertyCode -> {
+                if (ext.hasValue()) {
+                    conceptDef.getProperty().removeIf(p -> propertyCode.equals(p.getCode()));
+                    conceptDef.addProperty()
+                        .setCode(propertyCode)
+                        .setValue(ext.getValue());
+                }
+            });
+        }
+    }
+
+	private boolean isKnownNonPropertyExtension(String url) {
         if (url == null) {
             return false;
         }
@@ -109,30 +128,32 @@ public class ConceptComponentBuilder {
 	}
 
 	private void mapExtensionToProperty(Extension ext, CodeSystem.ConceptDefinitionComponent conceptDef) {
-		getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(propertyCode -> {
-			if (ext.hasValue()) {
-				conceptDef.getProperty().removeIf(p -> propertyCode.equals(p.getCode()));
-				conceptDef.addProperty().setCode(propertyCode).setValue(ext.getValue());
-			}
-		});
-	}
+        getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(propertyCode -> {
+            if (ext.hasValue()) {
+                conceptDef.getProperty().removeIf(p -> propertyCode.equals(p.getCode()));
+                conceptDef.addProperty()
+                    .setCode(propertyCode)
+                    .setValue(ext.getValue());
+            }
+        });
+    }
 
-	private java.util.Optional<String> getPropertyCodeFromExtensionUrl(String url) {
-		if (url == null)
-			return java.util.Optional.empty();
-		switch (url) {
-		case "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder":
-		case "http://hl7.org/fhir/StructureDefinition/codesystem-conceptOrder":
-			return java.util.Optional.of("order");
-		case "http://hl7.org/fhir/StructureDefinition/valueset-label":
-		case "http://hl7.org/fhir/StructureDefinition/codesystem-label":
-			return java.util.Optional.of("label");
-		case "http://hl7.org/fhir/StructureDefinition/itemWeight":
-			return java.util.Optional.of("weight");
-		default:
-			return java.util.Optional.empty();
-		}
-	}
+    public static java.util.Optional<String> getPropertyCodeFromExtensionUrl(String url) {
+        if (url == null) return java.util.Optional.empty();
+        switch (url) {
+            case "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder":
+            case "http://hl7.org/fhir/StructureDefinition/codesystem-conceptOrder":
+                return java.util.Optional.of("order");
+            case "http://hl7.org/fhir/StructureDefinition/valueset-label":
+            case "http://hl7.org/fhir/StructureDefinition/codesystem-label":
+                return java.util.Optional.of("label");
+            case "http://hl7.org/fhir/StructureDefinition/itemWeight":
+                return java.util.Optional.of("weight");
+            default:
+                return java.util.Optional.empty();
+        }
+    }
+    // 
 
 	/**
 	 * Processes and sets the display value based on language preferences

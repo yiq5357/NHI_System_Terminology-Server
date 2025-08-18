@@ -6,6 +6,7 @@ import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 
 import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ConceptReferenceComponent;
 import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
@@ -51,10 +52,22 @@ public class ValueSetExpansionService {
 
 		processSupplements(sourceValueSet, expansion, request);
 
-		discoverAndAugmentProperties(sourceValueSet, request.getSupplements(), request);
+		List<CodeSystem> includedCodeSystems = new ArrayList<>();
+		if (sourceValueSet.hasCompose()) {
+			for (ConceptSetComponent include : sourceValueSet.getCompose().getInclude()) {
+				if (include.hasSystem()) {
+					CodeSystem cs = resourceFinder.findCodeSystem(include.getSystem(), null, request);
+					if (cs != null) {
+						includedCodeSystems.add(cs);
+					}
+				}
+			}
+		}
 
-		List<ValueSetExpansionContainsComponent> allConcepts = 
-	            conceptCollector.collectAllConcepts(sourceValueSet, expansion, request);
+		discoverAndAugmentProperties(sourceValueSet, request.getSupplements(), includedCodeSystems, request);
+
+		List<ValueSetExpansionContainsComponent> allConcepts = conceptCollector.collectAllConcepts(sourceValueSet,
+				expansion, request);
 
 		if (allConcepts.size() > DEFAULT_MAX_EXPANSION_SIZE
 				&& (request.getCount() == null || !request.getCount().hasValue())) {
@@ -77,14 +90,14 @@ public class ValueSetExpansionService {
 	}
 
 	private void discoverAndAugmentProperties(ValueSet valueSet, Map<String, CodeSystem> supplements,
-			ExpansionRequest request) {
+			List<CodeSystem> includedCodeSystems, ExpansionRequest request) {
 		Set<String> discoveredProperties = new HashSet<>();
 
 		if (valueSet.hasCompose()) {
 			for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
 				for (ConceptReferenceComponent concept : include.getConcept()) {
 					for (Extension ext : concept.getExtension()) {
-						getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+						ConceptComponentBuilder.getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
 					}
 				}
 			}
@@ -98,9 +111,17 @@ public class ValueSetExpansionService {
 							discoveredProperties.add(prop.getCode());
 						}
 						for (Extension ext : concept.getExtension()) {
-							getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+							ConceptComponentBuilder.getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
 						}
 					}
+				}
+			}
+		}
+
+		if (includedCodeSystems != null) {
+			for (CodeSystem cs : includedCodeSystems) {
+				if (cs.hasConcept()) {
+					scanConceptsForProperties(cs.getConcept(), discoveredProperties);
 				}
 			}
 		}
@@ -117,18 +138,21 @@ public class ValueSetExpansionService {
 		}
 	}
 
-	private java.util.Optional<String> getPropertyCodeFromExtensionUrl(String url) {
-		if (url == null)
-			return java.util.Optional.empty();
-		switch (url) {
-		case "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder":
-			return java.util.Optional.of("order");
-		case "http://hl7.org/fhir/StructureDefinition/valueset-label":
-			return java.util.Optional.of("label");
-		case "http://hl7.org/fhir/StructureDefinition/itemWeight":
-			return java.util.Optional.of("weight");
-		default:
-			return java.util.Optional.empty();
+	private void scanConceptsForProperties(List<CodeSystem.ConceptDefinitionComponent> concepts,
+			Set<String> discoveredProperties) {
+		if (concepts == null || concepts.isEmpty()) {
+			return;
+		}
+
+		for (CodeSystem.ConceptDefinitionComponent concept : concepts) {
+			for (Extension ext : concept.getExtension()) {
+				ConceptComponentBuilder.getPropertyCodeFromExtensionUrl(ext.getUrl())
+						.ifPresent(discoveredProperties::add);
+			}
+
+			if (concept.hasConcept()) {
+				scanConceptsForProperties(concept.getConcept(), discoveredProperties);
+			}
 		}
 	}
 
