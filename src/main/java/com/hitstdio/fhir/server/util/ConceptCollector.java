@@ -22,34 +22,56 @@ public class ConceptCollector {
 		this.resourceFinder = resourceFinder;
 		this.conceptFilter = conceptFilter;
 		this.componentBuilder = new ConceptComponentBuilder(conceptFilter);
-	}
-
+	}	
+	
 	/**
 	 * Collects all concepts from a ValueSet based on its compose definition
 	 */
-	public List<ValueSetExpansionContainsComponent> collectAllConcepts(ValueSet sourceValueSet,
-			ValueSetExpansionComponent expansion, ExpansionRequest request) {
+    public List<ValueSetExpansionContainsComponent> collectAllConcepts(
+            ValueSet sourceValueSet,
+            ValueSetExpansionComponent expansion,
+            ExpansionRequest request) {
+        
+        if (!sourceValueSet.hasCompose()) {
+            return Collections.emptyList();
+        }
+        return collectAllConceptsRecursive(sourceValueSet, expansion, request, new HashSet<>());
+    }	
+	
+	private List<ValueSetExpansionContainsComponent> collectAllConceptsRecursive(ValueSet sourceValueSet,
+			ValueSetExpansionComponent expansion, ExpansionRequest request, Set<String> expansionChain) {
 
-		if (!sourceValueSet.hasCompose()) {
-			return Collections.emptyList();
+		String canonicalUrl = sourceValueSet.getUrl() + "|" + sourceValueSet.getVersion();
+
+		if (expansionChain.contains(canonicalUrl)) {
+			OperationOutcome oo = new OperationOutcome();
+			oo.addIssue().setSeverity(OperationOutcome.IssueSeverity.ERROR)
+					.setCode(OperationOutcome.IssueType.PROCESSING)
+					.setDetails(new CodeableConcept().setText("Cyclic ValueSet inclusion detected: " + canonicalUrl
+							+ " is already in the expansion chain."));
+			throw new UnprocessableEntityException("Cyclic ValueSet reference", oo);
 		}
 
-		List<ValueSetExpansionContainsComponent> includedCodes = new ArrayList<>();
+        try {
+            expansionChain.add(canonicalUrl);
 
-		// Process includes
-		processIncludes(sourceValueSet, expansion, request, includedCodes);
+            List<ValueSetExpansionContainsComponent> includedCodes = new ArrayList<>();
+            processIncludes(sourceValueSet, expansion, request, includedCodes, expansionChain);
+            processExcludes(sourceValueSet, expansion, request, includedCodes, expansionChain);
+            
+            return includedCodes;
 
-		// Process excludes
-		processExcludes(sourceValueSet, request, includedCodes);
-
-		return includedCodes;
-	}
+        } finally {
+            expansionChain.remove(canonicalUrl);
+        }
+    }
 
 	/**
 	 * Processes the include section of ValueSet compose
 	 */
 	private void processIncludes(ValueSet sourceValueSet, ValueSetExpansionComponent expansion,
-			ExpansionRequest request, List<ValueSetExpansionContainsComponent> includedCodes) {
+			ExpansionRequest request, List<ValueSetExpansionContainsComponent> includedCodes,
+			Set<String> expansionChain) {
 
 		Set<String> excludedSystems = getExcludedSystems(request.getExcludeSystem());
 		Map<String, String> systemVersionMap = parseSystemVersions(request.getSystemVersion());
@@ -70,7 +92,7 @@ public class ConceptCollector {
 
 			// Process ValueSet-based includes
 			if (include.hasValueSet()) {
-				processValueSetInclude(include, expansion, request, includedCodes);
+				processValueSetInclude(include, expansion, request, includedCodes, expansionChain);
 			}
 		}
 	}
@@ -104,7 +126,8 @@ public class ConceptCollector {
 	 * Processes a ValueSet-based include
 	 */
 	private void processValueSetInclude(ConceptSetComponent include, ValueSetExpansionComponent expansion,
-			ExpansionRequest request, List<ValueSetExpansionContainsComponent> includedCodes) {
+			ExpansionRequest request, List<ValueSetExpansionContainsComponent> includedCodes,
+			Set<String> expansionChain) {
 
 		for (CanonicalType valueSetToInclude : include.getValueSet()) {
 			ValueSet importedVs = resourceFinder.findValueSetByCanonical(valueSetToInclude, request);
@@ -124,7 +147,7 @@ public class ConceptCollector {
 				}
 
 				// Recursively collect concepts from included ValueSet
-				includedCodes.addAll(collectAllConcepts(importedVs, expansion, request));
+				includedCodes.addAll(collectAllConceptsRecursive(importedVs, expansion, request, expansionChain));
 			}
 		}
 	}
@@ -132,8 +155,11 @@ public class ConceptCollector {
 	/**
 	 * Processes the exclude section of ValueSet compose
 	 */
-	private void processExcludes(ValueSet sourceValueSet, ExpansionRequest request,
-			List<ValueSetExpansionContainsComponent> includedCodes) {
+	private void processExcludes(ValueSet sourceValueSet,
+            ValueSetExpansionComponent expansion, 
+            ExpansionRequest request,
+            List<ValueSetExpansionContainsComponent> includedCodes,
+            Set<String> expansionChain) {
 
 		if (!sourceValueSet.getCompose().hasExclude()) {
 			return;
@@ -150,6 +176,19 @@ public class ConceptCollector {
 					collectExcludedCodes(codesToExclude, codeSystem, exclude, systemUrl);
 				}
 			}
+            if (exclude.hasValueSet()) {
+                for (CanonicalType valueSetToExclude : exclude.getValueSet()) {
+                    ValueSet excludedVs = resourceFinder.findValueSetByCanonical(valueSetToExclude, request);
+                    if (excludedVs != null) {
+                        List<ValueSetExpansionContainsComponent> conceptsToExcludeFromVs =
+                            collectAllConceptsRecursive(excludedVs, expansion, request, expansionChain);
+                        
+                        conceptsToExcludeFromVs.forEach(comp -> 
+                            codesToExclude.add(comp.getSystem() + "|" + comp.getCode())
+                        );
+                    }
+                }
+            }			
 		}
 
 		// Remove excluded codes
@@ -216,28 +255,31 @@ public class ConceptCollector {
 	private void processExplicitConcepts(List<ValueSetExpansionContainsComponent> allCodes, ValueSet sourceValueSet,
 			CodeSystem codeSystem, ConceptSetComponent include, ExpansionRequest request) {
 
-        for (ConceptReferenceComponent conceptRef : include.getConcept()) {
-            CodeSystem.ConceptDefinitionComponent baseConceptDef = 
-                resourceFinder.findConceptInCodeSystem(codeSystem, conceptRef.getCode());
-            
-            if (baseConceptDef != null) {
-                CodeSystem.ConceptDefinitionComponent mergedConceptDef = baseConceptDef.copy();
+		for (ConceptReferenceComponent conceptRef : include.getConcept()) {
+			CodeSystem.ConceptDefinitionComponent baseConceptDef = resourceFinder.findConceptInCodeSystem(codeSystem,
+					conceptRef.getCode());
 
-                if (conceptRef.hasDesignation()) {
-                    for (ConceptReferenceDesignationComponent vsDesg : conceptRef.getDesignation()) {
-                        
-                        CodeSystem.ConceptDefinitionDesignationComponent newDesg = 
-                            new CodeSystem.ConceptDefinitionDesignationComponent();
-                        
-                        if (vsDesg.hasLanguage()) newDesg.setLanguage(vsDesg.getLanguage());
-                        if (vsDesg.hasUse()) newDesg.setUse(vsDesg.getUse());
-                        if (vsDesg.hasValue()) newDesg.setValue(vsDesg.getValue());
-                        if (vsDesg.hasExtension()) newDesg.setExtension(vsDesg.getExtension());
+			if (baseConceptDef != null) {
+				CodeSystem.ConceptDefinitionComponent mergedConceptDef = baseConceptDef.copy();
 
-                        mergedConceptDef.addDesignation(newDesg);
-                    }
-                }
-                
+				if (conceptRef.hasDesignation()) {
+					for (ConceptReferenceDesignationComponent vsDesg : conceptRef.getDesignation()) {
+
+						CodeSystem.ConceptDefinitionDesignationComponent newDesg = new CodeSystem.ConceptDefinitionDesignationComponent();
+
+						if (vsDesg.hasLanguage())
+							newDesg.setLanguage(vsDesg.getLanguage());
+						if (vsDesg.hasUse())
+							newDesg.setUse(vsDesg.getUse());
+						if (vsDesg.hasValue())
+							newDesg.setValue(vsDesg.getValue());
+						if (vsDesg.hasExtension())
+							newDesg.setExtension(vsDesg.getExtension());
+
+						mergedConceptDef.addDesignation(newDesg);
+					}
+				}
+
 				if (conceptRef.hasExtension()) {
 					applyValueSetConceptExtensions(mergedConceptDef, conceptRef.getExtension());
 				}
@@ -261,10 +303,12 @@ public class ConceptCollector {
 			conceptDef.addExtension(ext);
 
 			// 暫時不見天日
-			/*if ("http://hl7.org/fhir/StructureDefinition/valueset-concept-definition".equals(ext.getUrl())
-					&& ext.hasValue()) {
-				conceptDef.setDefinition(ext.getValue().primitiveValue());
-			}*/
+			/*
+			 * if
+			 * ("http://hl7.org/fhir/StructureDefinition/valueset-concept-definition".equals
+			 * (ext.getUrl()) && ext.hasValue()) {
+			 * conceptDef.setDefinition(ext.getValue().primitiveValue()); }
+			 */
 
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder", "order",
 					conceptDef);

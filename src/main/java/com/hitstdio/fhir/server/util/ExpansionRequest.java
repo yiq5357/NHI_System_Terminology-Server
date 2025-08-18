@@ -144,12 +144,20 @@ public class ExpansionRequest {
                         if (resource instanceof ValueSet) {
                             ValueSet vs = (ValueSet) resource;
                             if (vs.hasUrl()) {
-                                txResourceMap.put(vs.getUrl(), resource);
+                                String key = vs.getUrl();
+                                if (vs.hasVersion()) {
+                                    key += "|" + vs.getVersion();
+                                }
+                                txResourceMap.put(key, resource);
                             }
                         } else if (resource instanceof CodeSystem) {
                             CodeSystem cs = (CodeSystem) resource;
                             if (cs.hasUrl()) {
-                                txResourceMap.put(cs.getUrl(), resource);
+                                String key = cs.getUrl();
+                                if (cs.hasVersion()) {
+                                    key += "|" + cs.getVersion();
+                                }
+                                txResourceMap.put(key, resource);
                             }
                         }
                     }
