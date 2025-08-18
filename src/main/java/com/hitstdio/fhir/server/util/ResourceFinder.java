@@ -41,7 +41,6 @@ public class ResourceFinder {
         if (version != null && !version.isEmpty()) {
             searchParams.add(ValueSet.SP_VERSION, new TokenParam(version));
         } else {
-            // Sort by last updated to get the most recent version
             searchParams.setSort(new SortSpec("_lastUpdated").setOrder(SortOrderEnum.DESC));
         }
         
@@ -121,13 +120,14 @@ public class ResourceFinder {
      * Finds a CodeSystem by URL and optional version
      */
     public CodeSystem findCodeSystem(String system, String version, ExpansionRequest request) {
-        // Check tx-resources first
         Map<String, Resource> txResources = request.getTxResources();
         if (txResources.containsKey(system)) {
-            return (CodeSystem) txResources.get(system);
+            Resource resource = txResources.get(system);
+            if (resource instanceof CodeSystem) {
+                return (CodeSystem) resource;
+            }
         }
         
-        // Search in database
         SearchParameterMap searchParams = new SearchParameterMap();
         searchParams.add(PARAM_URL, new UriParam(system));
         
@@ -136,7 +136,25 @@ public class ResourceFinder {
         }
         
         IBundleProvider results = codeSystemDao.search(searchParams, request.getRequestDetails());
-        return results.isEmpty() ? null : (CodeSystem) results.getResources(0, 1).get(0);
+        
+        if (results.isEmpty()) {
+            String diagnosticMessage = "Supplement CodeSystem not found for URL: " + system + 
+                (version != null ? " and version: " + version : "");
+
+            OperationOutcome oo = new OperationOutcome();
+            OperationOutcome.OperationOutcomeIssueComponent issue = oo.addIssue();
+            issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+            issue.setCode(OperationOutcome.IssueType.NOTFOUND); 
+            
+            CodeableConcept details = new CodeableConcept();
+            details.setText("Unable to find supplement for canonical URL '" + system + 
+                            (version != null ? "|" + version : "") + "'");
+            issue.setDetails(details);
+            
+            throw new ResourceNotFoundException(diagnosticMessage, oo);
+        }
+        
+        return (CodeSystem) results.getResources(0, 1).get(0);
     }
     
     /**

@@ -23,9 +23,8 @@ public class LanguageProcessor {
         for (String part : parts) {
             String[] subParts = part.trim().split(";");
             String lang = subParts[0].trim();
-            double quality = 1.0; // Default quality value
+            double quality = 1.0; 
             
-            // Parse quality value if present
             if (subParts.length > 1) {
                 for (int i = 1; i < subParts.length; i++) {
                     String param = subParts[i].trim();
@@ -33,7 +32,6 @@ public class LanguageProcessor {
                         try {
                             quality = Double.parseDouble(param.substring(2));
                         } catch (NumberFormatException e) {
-                            // Ignore invalid quality values, use default
                         }
                     }
                 }
@@ -42,7 +40,6 @@ public class LanguageProcessor {
             preferences.add(new LanguagePreference(lang, quality));
         }
         
-        // Sort by quality (highest first)
         Collections.sort(preferences);
         return preferences;
     }
@@ -61,7 +58,6 @@ public class LanguageProcessor {
         
         @Override
         public int compareTo(LanguagePreference other) {
-            // Higher quality comes first
             return Double.compare(other.quality, this.quality);
         }
         

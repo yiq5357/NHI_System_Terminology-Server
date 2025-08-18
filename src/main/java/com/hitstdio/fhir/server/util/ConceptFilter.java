@@ -62,7 +62,6 @@ public class ConceptFilter {
     private boolean matchesActiveFilter(ValueSet sourceValueSet,
                                        CodeSystem.ConceptDefinitionComponent conceptDef,
                                        ExpansionRequest request) {
-        // Check if filtering for active concepts is required
         boolean activeOnlyRequested = request.getActiveOnly() != null && 
                                      request.getActiveOnly().getValue();
         
@@ -142,7 +141,6 @@ public class ConceptFilter {
             case ISNOTA:
             case DESCENDENTOF:
             case GENERALIZES:
-                // These are handled elsewhere in the hierarchy processing
                 return true;
             default:
                 return false;

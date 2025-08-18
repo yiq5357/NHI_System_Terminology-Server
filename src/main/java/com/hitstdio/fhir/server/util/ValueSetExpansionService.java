@@ -2,14 +2,15 @@ package com.hitstdio.fhir.server.util;
 
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
 import ca.uhn.fhir.model.api.TemporalPrecisionEnum;
-import ca.uhn.fhir.rest.api.RequestTypeEnum;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
-import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.model.ValueSet.ConceptReferenceComponent;
+import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionContainsComponent;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Core service for ValueSet expansion operations.
@@ -38,35 +39,83 @@ public class ValueSetExpansionService {
      * Main method to perform ValueSet expansion
      */
     public ValueSet expand(ExpansionRequest request) {
-        // 1. Retrieve the source ValueSet
         ValueSet sourceValueSet = retrieveSourceValueSet(request);
         
-        // 2. Create result ValueSet with metadata
         ValueSet resultValueSet = createResultValueSet(sourceValueSet, request);
         
-        // 3. Initialize expansion component
         ValueSetExpansionComponent expansion = resultValueSet.getExpansion();
         initializeExpansion(expansion);
         
-        // 4. Process supplements if any
         processSupplements(sourceValueSet, expansion, request);
         
-        // 5. Collect all concepts
+        discoverAndAugmentProperties(sourceValueSet, request.getSupplements(), request);
+
         List<ValueSetExpansionContainsComponent> allConcepts = 
             conceptCollector.collectAllConcepts(sourceValueSet, expansion, request);
         
-        // 6. Apply paging
         List<ValueSetExpansionContainsComponent> pagedConcepts = 
             applyPaging(allConcepts, request);
         
-        // 7. Build final expansion
         expansionBuilder.buildExpansion(expansion, sourceValueSet, allConcepts, 
                                        pagedConcepts, request);
         
         return resultValueSet;
     }
     
-    /**
+    private void discoverAndAugmentProperties(ValueSet valueSet, 
+            Map<String, CodeSystem> supplements, 
+            ExpansionRequest request) {
+    	Set<String> discoveredProperties = new HashSet<>();
+        
+        if (valueSet.hasCompose()) {
+            for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+                for (ConceptReferenceComponent concept : include.getConcept()) {
+                    for (Extension ext : concept.getExtension()) {
+                        getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+                    }
+                }
+            }
+        }
+        
+        if (supplements != null) {
+            for (CodeSystem cs : supplements.values()) {
+                if (cs.hasConcept()) {
+                    for (CodeSystem.ConceptDefinitionComponent concept : cs.getConcept()) {
+                        for (CodeSystem.ConceptPropertyComponent prop : concept.getProperty()) {
+                            discoveredProperties.add(prop.getCode());
+                        }
+                        for (Extension ext : concept.getExtension()) {
+                            getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!discoveredProperties.isEmpty()) {
+            List<CodeType> originalProperties = request.getProperty();
+            Set<String> existingCodes = originalProperties.stream()
+                .map(CodeType::getCode)
+                .collect(Collectors.toSet());
+            
+            for (String code : discoveredProperties) {
+                if (!existingCodes.contains(code)) {
+                    originalProperties.add(new CodeType(code));
+                }
+            }
+        }
+    }
+    
+    private java.util.Optional<String> getPropertyCodeFromExtensionUrl(String url) {
+        if (url == null) return java.util.Optional.empty();
+        switch (url) {
+            case "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder": return java.util.Optional.of("order");
+            case "http://hl7.org/fhir/StructureDefinition/valueset-label": return java.util.Optional.of("label");
+            case "http://hl7.org/fhir/StructureDefinition/itemWeight": return java.util.Optional.of("weight");
+            default: return java.util.Optional.empty();
+        }
+    }
+	/**
      * Retrieves the source ValueSet based on request parameters
      */
     private ValueSet retrieveSourceValueSet(ExpansionRequest request) {
@@ -77,12 +126,10 @@ public class ValueSetExpansionService {
             return (ValueSet) txResources.get(request.getUrl().getValueAsString());
         }
         
-        // Use ID if provided
         if (request.getId() != null && request.getId().hasIdPart()) {
             return valueSetDao.read(request.getId(), request.getRequestDetails());
         }
         
-        // Otherwise, URL is required
         if (request.getUrl() == null || !request.getUrl().hasValue()) {
             throw new InvalidRequestException(
                 "Either a resource ID or the 'url' parameter must be provided for the $expand operation.");
@@ -103,10 +150,8 @@ public class ValueSetExpansionService {
         boolean includeDefinition = request.getIncludeDefinition() != null && 
                                    request.getIncludeDefinition().getValue();
         
-        // Copy basic metadata
         copyBasicMetadata(sourceValueSet, result);
         
-        // Copy additional metadata if includeDefinition is true
         if (includeDefinition) {
             copyFullMetadata(sourceValueSet, result);
         }
@@ -245,12 +290,10 @@ public class ValueSetExpansionService {
             count = 0;
         }
         
-        // If count is 0 or not provided, return all concepts
         if (count <= 0) {
             return allConcepts;
         }
         
-        // Apply paging
         if (offset >= allConcepts.size()) {
             return Collections.emptyList();
         }

@@ -2,11 +2,15 @@ package com.hitstdio.fhir.server.util;
 
 import ca.uhn.fhir.rest.api.RequestTypeEnum;
 import org.hl7.fhir.r4.model.*;
+import org.hl7.fhir.r4.model.ValueSet.ConceptReferenceComponent;
+import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionContainsComponent;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -266,7 +270,17 @@ public class ExpansionBuilder {
                                         ValueSet sourceValueSet,
                                         ExpansionRequest request) {
         
-        if (request.getProperty() == null || request.getProperty().isEmpty()) {
+        Set<String> propertiesToDeclare = new HashSet<>();
+
+        if (request.getProperty() != null) {
+            request.getProperty().stream()
+                .filter(p -> p != null && p.hasCode())
+                .forEach(p -> propertiesToDeclare.add(p.getCode()));
+        }
+
+        discoverPropertiesFromCompose(sourceValueSet, propertiesToDeclare);
+        
+        if (propertiesToDeclare.isEmpty()) {
             return;
         }
         
@@ -276,7 +290,6 @@ public class ExpansionBuilder {
         
         String systemUrl = sourceValueSet.getCompose().getIncludeFirstRep().getSystem();
         
-        // Find the CodeSystem to get property definitions
         Map<String, Resource> txResources = request.getTxResources();
         CodeSystem codeSystem = null;
         
@@ -291,19 +304,40 @@ public class ExpansionBuilder {
             return;
         }
         
-        // Build property URI map
         Map<String, String> propertyUris = buildPropertyUriMap(codeSystem);
-        
-        // Add property declarations
-        for (CodeType reqProp : request.getProperty()) {
-            String code = reqProp.getCode();
-            if (propertyUris.containsKey(code)) {
-                addPropertyDeclaration(expansion, code, propertyUris.get(code));
+
+        for (String propCode : propertiesToDeclare) {
+            if (propertyUris.containsKey(propCode)) {
+                addPropertyDeclaration(expansion, propCode, propertyUris.get(propCode));
             }
         }
     }
     
-    /**
+    private void discoverPropertiesFromCompose(ValueSet valueSet, Set<String> properties) {
+        if (!valueSet.hasCompose()) {
+            return;
+        }
+        for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+            for (ConceptReferenceComponent concept : include.getConcept()) {
+                for (Extension ext : concept.getExtension()) {
+                    getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(properties::add);
+                }
+            }
+        }
+    }
+
+    private java.util.Optional<String> getPropertyCodeFromExtensionUrl(String url) {
+        if (url == null) return java.util.Optional.empty();
+        switch (url) {
+            case "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder": return java.util.Optional.of("order");
+            case "http://hl7.org/fhir/StructureDefinition/valueset-label": return java.util.Optional.of("label");
+            case "http://hl7.org/fhir/StructureDefinition/itemWeight": return java.util.Optional.of("weight");
+            default: return java.util.Optional.empty();
+        }
+    }
+
+
+	/**
      * Builds a map of property codes to URIs
      */
     private Map<String, String> buildPropertyUriMap(CodeSystem codeSystem) {
@@ -313,11 +347,13 @@ public class ExpansionBuilder {
                 prop -> prop.getUri()
             ));
         
-        // Add standard properties
         propertyUris.put("definition", "http://hl7.org/fhir/concept-properties#definition");
         propertyUris.put("status", "http://hl7.org/fhir/concept-properties#status");
         propertyUris.put("notSelectable", "http://hl7.org/fhir/concept-properties#notSelectable");
         
+        propertyUris.put("order", "http://hl7.org/fhir/concept-properties#order");
+        propertyUris.put("label", "http://hl7.org/fhir/concept-properties#label");
+        propertyUris.put("weight", "http://hl7.org/fhir/concept-properties#itemWeight"); 
         return propertyUris;
     }
     

@@ -3,6 +3,7 @@ package com.hitstdio.fhir.server.util;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import org.hl7.fhir.r4.model.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +61,7 @@ public class ExpansionRequest {
         this.systemVersion = builder.systemVersion;
         this.checkSystemVersion = builder.checkSystemVersion;
         this.forceSystemVersion = builder.forceSystemVersion;
-        this.property = builder.property;
+        this.property = (builder.property == null) ? new ArrayList<>() : builder.property;
         this.parameters = builder.parameters;
         this.requestDetails = builder.requestDetails;
     }
