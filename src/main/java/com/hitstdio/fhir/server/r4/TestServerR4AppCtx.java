@@ -36,6 +36,7 @@ import com.hitstdio.fhir.server.provider.ProcedureResourceProvider;
 import com.hitstdio.fhir.server.provider.SpecimenResourceProvider;
 import com.hitstdio.fhir.server.provider.StructureDefinitionResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
+import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -84,6 +85,7 @@ public class TestServerR4AppCtx {
 		retVal.add(new TerminologyCapabilitiesResourceProvider(myDaoRegistry));
 		retVal.add(new StructureDefinitionResourceProvider(myDaoRegistry));
 		retVal.add(new ParametersResourceProvider(myDaoRegistry));
+		retVal.add(new ValueSetResourceProvider(myDaoRegistry));
 		return retVal;
 	}
 
