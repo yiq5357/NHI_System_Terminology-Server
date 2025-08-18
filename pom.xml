@@ -199,6 +199,12 @@
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
             <version>${spring_boot_version}</version>
         </dependency>
+        
+        <dependency>
+		  <groupId>com.helger</groupId>
+		  <artifactId>ph-schematron</artifactId>
+		  <version>5.6.3</version> <!-- 或最新版本 -->
+		</dependency>
 		  	
 		<!-- https://mvnrepository.com/artifact/org.hibernate.orm/hibernate-core 
 		<dependency>

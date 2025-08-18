@@ -28,11 +28,13 @@ import com.hitstdio.fhir.server.provider.MessageHeaderResourceProvider;
 import com.hitstdio.fhir.server.provider.NamingSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.ObservationResourceProvider;
 import com.hitstdio.fhir.server.provider.OrganizationResourceProvider;
+import com.hitstdio.fhir.server.provider.ParametersResourceProvider;
 import com.hitstdio.fhir.server.provider.PatientResourceProvider;
 import com.hitstdio.fhir.server.provider.PractitionerResourceProvider;
 import com.hitstdio.fhir.server.provider.PractitionerRoleResourceProvider;
 import com.hitstdio.fhir.server.provider.ProcedureResourceProvider;
 import com.hitstdio.fhir.server.provider.SpecimenResourceProvider;
+import com.hitstdio.fhir.server.provider.StructureDefinitionResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
 
@@ -78,10 +80,12 @@ public class TestServerR4AppCtx {
 		retVal.add(new ProcedureResourceProvider(myDaoRegistry));
 		retVal.add(new SpecimenResourceProvider(myDaoRegistry));
 		retVal.add(new CodeSystemResourceProvider(myDaoRegistry));
-		retVal.add(new ValueSetResourceProvider(myDaoRegistry));
 		retVal.add(new NamingSystemResourceProvider(myDaoRegistry));
 		retVal.add(new ConceptMapResourceProvider(myDaoRegistry));
 		retVal.add(new TerminologyCapabilitiesResourceProvider(myDaoRegistry));
+		retVal.add(new StructureDefinitionResourceProvider(myDaoRegistry));
+		retVal.add(new ParametersResourceProvider(myDaoRegistry));
+		retVal.add(new ValueSetResourceProvider(myDaoRegistry));
 		return retVal;
 	}
 
