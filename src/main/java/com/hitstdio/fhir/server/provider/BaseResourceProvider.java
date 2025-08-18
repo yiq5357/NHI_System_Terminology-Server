@@ -68,11 +68,11 @@ public abstract class BaseResourceProvider<T extends IBaseResource> implements I
 			throw new InvalidRequestException("Resource is null.");
 		}
 		
-		MethodOutcome validationResult = validateWithAddNewCreate(theResource);
+		/*MethodOutcome validationResult = validateWithAddNewCreate(theResource);
 	    if (validationResult != null) {
 	    	validationResult.setResponseStatusCode(Constants.STATUS_HTTP_400_BAD_REQUEST);
 	        return validationResult;
-	    }	
+	    }	*/
 		
 		IFhirResourceDao<T> dao = (IFhirResourceDao<T>) myDaoRegistry.getResourceDao(getResourceType());
 
@@ -94,11 +94,11 @@ public abstract class BaseResourceProvider<T extends IBaseResource> implements I
 			throw new InvalidRequestException("Resource is null.");
 		}
 		
-		MethodOutcome validationResult = validateWithAddNewUpdate(theResource);
+		/*MethodOutcome validationResult = validateWithAddNewUpdate(theResource);
 	    if (validationResult != null) {
 	    	validationResult.setResponseStatusCode(Constants.STATUS_HTTP_400_BAD_REQUEST);
 	        return validationResult;
-	    }	
+	    }	*/
 	    
 		IFhirResourceDao<T> dao = (IFhirResourceDao<T>) myDaoRegistry.getResourceDao(getResourceType());
 

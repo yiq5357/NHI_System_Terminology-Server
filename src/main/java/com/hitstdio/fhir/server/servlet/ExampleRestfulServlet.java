@@ -8,12 +8,10 @@ import org.hl7.fhir.common.hapi.validation.support.InMemoryTerminologyServerVali
 import org.hl7.fhir.common.hapi.validation.support.NpmPackageValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.SnapshotGeneratingValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.ValidationSupportChain;
-import org.hl7.fhir.r4.model.CapabilityStatement;
 import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 
-import com.hitstdio.fhir.server.provider.CodeSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.r4.TestServerR4AppCtx;
 
@@ -25,19 +23,15 @@ import ca.uhn.fhir.jpa.batch2.JpaBatch2Config;
 import ca.uhn.fhir.narrative.DefaultThymeleafNarrativeGenerator;
 import ca.uhn.fhir.narrative.INarrativeGenerator;
 import ca.uhn.fhir.parser.IParser;
-import ca.uhn.fhir.rest.api.Constants;
 import ca.uhn.fhir.rest.api.EncodingEnum;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.IResourceProvider;
-import ca.uhn.fhir.rest.server.IServerConformanceProvider;
 import ca.uhn.fhir.rest.server.RestfulServer;
 import ca.uhn.fhir.rest.server.exceptions.AuthenticationException;
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
-import ca.uhn.fhir.rest.server.interceptor.IServerInterceptor;
 import ca.uhn.fhir.rest.server.interceptor.InterceptorAdapter;
+import ca.uhn.fhir.rest.server.interceptor.LoggingInterceptor;
 import ca.uhn.fhir.rest.server.interceptor.ResponseHighlighterInterceptor;
 import ca.uhn.fhir.rest.server.interceptor.StaticCapabilityStatementInterceptor;
-import ca.uhn.fhir.rest.server.provider.ServerCapabilityStatementProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -66,18 +60,9 @@ public final class ExampleRestfulServlet extends RestfulServer {
 	 */
 	@Override
 	public void initialize() {
-		FhirContext ctx = getFhirContext();
-		
-		NpmPackageValidationSupport npmPackageSupport = new NpmPackageValidationSupport(ctx);
-        try {
-            npmPackageSupport.loadPackageFromClasspath("classpath:package/tw.gov.mohw.twcore.tgz");
-            npmPackageSupport.loadPackageFromClasspath("classpath:package/tw.gov.mohw.cdc.twiam.tgz");
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load NPM packages", e);
-        }
+		FhirContext ctx = getFhirContext();		
         
         validationSupportChain = new ValidationSupportChain(
-                npmPackageSupport,
                 new DefaultProfileValidationSupport(ctx),
                 new InMemoryTerminologyServerValidationSupport(ctx),
                 new CommonCodeSystemsTerminologyService(ctx),
@@ -87,6 +72,12 @@ public final class ExampleRestfulServlet extends RestfulServer {
         Class<?> configClass = TestServerR4AppCtx.class;
         AnnotationConfigApplicationContext appCtx = new AnnotationConfigApplicationContext(configClass);
 		List<IResourceProvider> providers = appCtx.getBean("resourceProviders", List.class);
+		
+		
+		StaticCapabilityStatementInterceptor interceptor = new StaticCapabilityStatementInterceptor();
+	    interceptor.setCapabilityStatementResource("classpath:capabilitystatement.json");
+	    registerInterceptor(interceptor);
+		
 		
 		// 注册 TerminologyCapabilitiesResourceProvider
         TerminologyCapabilitiesResourceProvider terminologyProvider = new TerminologyCapabilitiesResourceProvider(appCtx.getBean(DaoRegistry.class));
@@ -114,6 +105,19 @@ public final class ExampleRestfulServlet extends RestfulServer {
 		/*OpenApiInterceptor openApiInterceptor = new OpenApiInterceptor();
 	    registerInterceptor(openApiInterceptor);*/
 	    
+		LoggingInterceptor loggingInterceptor = new LoggingInterceptor();
+		loggingInterceptor.setLoggerName("fhir.access");
+		loggingInterceptor.setMessageFormat(
+		    "Path[${servletPath}] " +
+		    "Source[${requestHeader.x-forwarded-for}] " +
+		    "Operation[${operationType} ${idOrResourceName}] " +
+		    "UA[${requestHeader.user-agent}] " +
+		    "Params[${requestParameters}] " +
+		    "RequestBody[${requestBodyFhir}] " +
+		    "ResponseCode[${responseCode}] " +
+		    "ProcessingTime[${processingTimeMillis}ms]"
+		);
+		registerInterceptor(loggingInterceptor);
 	}
 	 // 创建自定义拦截器来处理 /metadata 请求
     private class CapabilityStatementInterceptor extends InterceptorAdapter {
@@ -155,7 +159,7 @@ public final class ExampleRestfulServlet extends RestfulServer {
                         String responseContent = parser.encodeResourceToString(terminologyCapabilities);
                         
                         theResponse.setStatus(200);
-                        theResponse.setContentType(EncodingEnum.JSON.getResourceContentType());
+	                    theResponse.setContentType("application/fhir+json; charset=UTF-8");
                         theResponse.getWriter().write(responseContent);
                         theResponse.getWriter().close();
                         
