@@ -1,9 +1,12 @@
 package com.hitstdio.fhir.server.provider;
 
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Collections;
 
+import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.CodeSystem;
@@ -11,11 +14,15 @@ import org.hl7.fhir.r4.model.Enumerations;
 
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
+import ca.uhn.fhir.jpa.api.dao.IFhirSystemDao;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
+import ca.uhn.fhir.rest.annotation.Metadata;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
+import ca.uhn.fhir.rest.param.UriParam;
+import ca.uhn.fhir.rest.server.RestfulServer;
 
 public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvider<TerminologyCapabilities> {
 
@@ -34,7 +41,8 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 	        if (mode != null && mode.equals("terminology")) {
 	            TerminologyCapabilities terminologyCapabilities = new TerminologyCapabilities();
 
-	            // ³]©w°ò¥»ÄÝ©Ê
+	            // ï¿½]ï¿½wï¿½ï¿½ï¿½Ý©ï¿½
+	            terminologyCapabilities.setVersion("1.0.0");
 	            terminologyCapabilities.setStatus(Enumerations.PublicationStatus.ACTIVE);
 	            terminologyCapabilities.setUrl("localhost:8085/metadata?mode=terminology");
 	            terminologyCapabilities.setName("TerminologyCapabilities");
@@ -43,12 +51,31 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 	            terminologyCapabilities.setKind(TerminologyCapabilities.CapabilityStatementKind.CAPABILITY);
 	            terminologyCapabilities.setPublisher("Your Organization");
 
-	            // ±q¸ê®Æ®w¼´¥X©Ò¦³CodeSystem¸ê·½
+	            TerminologyCapabilities.TerminologyCapabilitiesExpansionComponent expansion = new TerminologyCapabilities.TerminologyCapabilitiesExpansionComponent();
+	            terminologyCapabilities.setExpansion(expansion);
+	            
+	            List<String> parameterNames = java.util.Arrays.asList(
+	                    "activeOnly", "count", "displayLanguage", "excludeNested",
+	                    "force-system-version", "includeDefinition", "includeDesignations",
+	                    "offset", "property", "system-version", "tx-resource"
+	                );
+
+	            for (String paramName : parameterNames) {
+                    TerminologyCapabilities.TerminologyCapabilitiesExpansionParameterComponent parameterComponent = 
+                        new TerminologyCapabilities.TerminologyCapabilitiesExpansionParameterComponent();
+                    parameterComponent.setName(paramName);
+                    
+                    expansion.addParameter(parameterComponent);
+                }
+
+	            
+	            
+	            // ï¿½qï¿½ï¿½Æ®wï¿½ï¿½ï¿½Xï¿½Ò¦ï¿½CodeSystemï¿½ê·½
 	            SearchParameterMap searchParams = new SearchParameterMap();
 	            IBundleProvider results = codeSystemDao.search(searchParams, requestDetails);
 	            List<IBaseResource> codeSystemResources = results.getResources(0, results.size());
 
-	            // ®Ú¾Ú¼´¥X¨ÓªºCodeSystem³]©wTerminologyCapabilities
+	            // ï¿½Ú¾Ú¼ï¿½ï¿½Xï¿½Óªï¿½CodeSystemï¿½]ï¿½wTerminologyCapabilities
 	            for (IBaseResource resource : codeSystemResources) {
 	                if (resource instanceof CodeSystem) {
 	                    CodeSystem cs = (CodeSystem) resource;
