@@ -305,7 +305,8 @@ public class ValueSetExpansionService {
 
 					if (supplementCs != null) {
 						expansion.addParameter().setName("used-supplement").setValue(supplementCanonical.copy());
-						expansion.addParameter().setName("version").setValue(supplementCanonical.copy());
+						// 移除 version 參數
+						// expansion.addParameter().setName("version").setValue(supplementCanonical.copy());
 
 						supplements.put(url, supplementCs);
 					}

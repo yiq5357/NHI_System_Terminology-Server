@@ -138,7 +138,8 @@ public class ConceptCollector {
 
 				expansion.addParameter().setName("used-valueset").setValue(resolvedCanonical.copy());
 
-				expansion.addParameter().setName("version").setValue(resolvedCanonical.copy());
+				// 移除 version 參數
+				// expansion.addParameter().setName("version").setValue(resolvedCanonical.copy());
 
 				// Add warning if withdrawn
 				String vsStatus = getStandardsStatus(importedVs);
@@ -613,7 +614,8 @@ public class ConceptCollector {
 		// Add used-codesystem parameter
 		if (!hasParameter(expansion, "used-codesystem", parameterValue)) {
 			expansion.addParameter().setName("used-codesystem").setValue(parameterValue.copy());
-			expansion.addParameter().setName("version").setValue(parameterValue.copy());
+			// 移除 version 參數
+			// expansion.addParameter().setName("version").setValue(parameterValue.copy());
 		}
 
 		// Add warnings if needed
