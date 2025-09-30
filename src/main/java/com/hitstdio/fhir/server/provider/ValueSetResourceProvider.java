@@ -729,7 +729,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
         // 建立 OperationOutcome 包含多個 issue
         OperationOutcome outcome = new OperationOutcome();
-        
+        // 移除自動生成的 narrative text
+        outcome.setText(null);
+
         // 檢查是否為 systemVersion 相關錯誤
         if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
             context.systemVersion() != null && !context.systemVersion().isEmpty()) {
@@ -779,9 +781,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             vsWarningDetails.setText(vsWarningMessage);
             valueSetWarning.setDetails(vsWarningDetails);
         } else {
+            // 檢查 code 是否存在於 CodeSystem 中
+            boolean codeExistsInCodeSystem = false;
+            if (codeSystem != null && context.code() != null) {
+                ConceptDefinitionComponent concept = findConceptRecursive(
+                    codeSystem.getConcept(), context.code().getValue());
+                codeExistsInCodeSystem = (concept != null);
+            }
+
             // 原有的錯誤處理邏輯
-            if (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET || 
-                context.errorType() == ValidationErrorType.INVALID_CODE) {
+            if (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
+                // Code 不在 ValueSet 中的錯誤（但可能存在於 CodeSystem）
                 var valueSetIssue = outcome.addIssue();
                 valueSetIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
                 valueSetIssue.setCode(OperationOutcome.IssueType.CODEINVALID);
@@ -797,17 +807,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     "not-in-vs",
                     null
                 ));
-                
-                String valueSetMessage = buildValueSetErrorMessage(context);
+
+                String valueSetMessage = buildValueSetErrorMessage(context, codeSystem);
                 valueSetDetails.setText(valueSetMessage);
                 valueSetIssue.setDetails(valueSetDetails);
-                
-                valueSetIssue.addLocation("code");
-                valueSetIssue.addExpression("code");
-            }
 
-            if (context.errorType() == ValidationErrorType.INVALID_CODE || 
-                context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
+                // 根據 parameterSource 設定正確的 location 和 expression
+                setLocationAndExpression(valueSetIssue, context);
+            } else if (context.errorType() == ValidationErrorType.INVALID_CODE) {
+                // Code 在 CodeSystem 中也不存在的錯誤
                 var codeSystemIssue = outcome.addIssue();
                 codeSystemIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
                 codeSystemIssue.setCode(OperationOutcome.IssueType.CODEINVALID);
@@ -823,11 +831,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     "invalid-code",
                     null
                 ));
-                
+
                 String codeSystemMessage = buildCodeSystemErrorMessage(context, codeSystem);
                 codeSystemDetails.setText(codeSystemMessage);
                 codeSystemIssue.setDetails(codeSystemDetails);
-                
+
                 codeSystemIssue.addLocation("code");
                 codeSystemIssue.addExpression("code");
             }
@@ -836,14 +844,21 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         // 添加其他特定錯誤類型的 issue
         addSpecificErrorIssues(outcome, context, codeSystem);
 
+        // 創建一個新的 OperationOutcome，只包含 issue，不包含任何 narrative
+        OperationOutcome cleanOutcome = new OperationOutcome();
+        cleanOutcome.getIssue().addAll(outcome.getIssue());
+
         // 添加 issues 參數
-        result.addParameter().setName("issues").setResource(outcome);
+        result.addParameter().setName("issues").setResource(cleanOutcome);
 
         // 添加 message 參數
         String mainErrorMessage;
-        if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
+        if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND &&
             context.systemVersion() != null && !context.systemVersion().isEmpty()) {
             mainErrorMessage = buildCodeSystemVersionErrorMessage(context);
+        } else if (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
+            // 當 code 不在 ValueSet 中時，使用 ValueSet 錯誤訊息
+            mainErrorMessage = buildValueSetErrorMessage(context, codeSystem);
         } else {
             mainErrorMessage = buildCodeSystemErrorMessage(context, codeSystem);
         }
@@ -1648,15 +1663,52 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     ) {}
 
     // 構建 ValueSet 層級的錯誤訊息
-    private String buildValueSetErrorMessage(ValidationContext context) {
+    private String buildValueSetErrorMessage(ValidationContext context, CodeSystem codeSystem) {
         if (context.valueSet() != null && context.valueSet().hasUrl() && context.code() != null) {
             String valueSetUrl = context.valueSet().getUrl();
             String version = context.valueSet().hasVersion() ? context.valueSet().getVersion() : "unknown";
+
+            // 如果有 CodeSystem，使用完整格式：system#code
+            if (codeSystem != null && codeSystem.hasUrl()) {
+                return String.format("The provided code '%s#%s' was not found in the value set '%s|%s'",
+                    codeSystem.getUrl(),
+                    context.code().getValue(),
+                    valueSetUrl,
+                    version);
+            } else if (context.system() != null) {
+                return String.format("The provided code '%s#%s' was not found in the value set '%s|%s'",
+                    context.system().getValue(),
+                    context.code().getValue(),
+                    valueSetUrl,
+                    version);
+            }
+
             return String.format("Code '%s' is not in the ValueSet '%s|%s'",
                 context.code().getValue(),
                 valueSetUrl,
                 version);
         }
         return "Code is not in the specified ValueSet";
+    }
+
+    // 根據 parameterSource 設定正確的 location 和 expression
+    private void setLocationAndExpression(OperationOutcome.OperationOutcomeIssueComponent issue,
+                                         ValidationContext context) {
+        String location;
+        String expression;
+
+        if ("coding".equals(context.parameterSource())) {
+            location = "Coding.code";
+            expression = "Coding.code";
+        } else if (context.parameterSource() != null && context.parameterSource().startsWith("codeableConcept")) {
+            location = "CodeableConcept.coding[0].code";
+            expression = "CodeableConcept.coding[0].code";
+        } else {
+            location = "code";
+            expression = "code";
+        }
+
+        issue.addLocation(location);
+        issue.addExpression(expression);
     }
 }
