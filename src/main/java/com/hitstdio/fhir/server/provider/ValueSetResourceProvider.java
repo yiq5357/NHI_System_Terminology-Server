@@ -191,24 +191,24 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     ) {
         try {        
         	
-        	// ¸ÑªR¨t²Î URL - Àu¥ý¨Ï¥Î UriType¡A¦pªG¨S¦³«h¨Ï¥Î CanonicalType
+        	// è§£æžç³»çµ± URL - å„ªå…ˆä½¿ç”¨ UriTypeï¼Œå¦‚æžœæ²’æœ‰å‰‡ä½¿ç”¨ CanonicalType
             UriType resolvedSystem = resolveUriParameter(system, systemCanonical);
         	
-            // ¸ÑªR systemVersion - ²Î¤@³B²z StringType ©M CodeType
+            // è§£æž systemVersion - çµ±ä¸€è™•ç† StringType å’Œ CodeType
             StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
                     
-            // ¦pªG¦³ coding °Ñ¼Æ¥B¨ä¤¤¥]§t version¡A»Ý­n¯S§O³B²z
+            // å¦‚æžœæœ‰ coding åƒæ•¸ä¸”å…¶ä¸­åŒ…å« versionï¼Œéœ€è¦ç‰¹åˆ¥è™•ç†
             if (coding != null && coding.hasVersion() && 
                 (resolvedSystemVersion == null || resolvedSystemVersion.isEmpty())) {
                 resolvedSystemVersion = new StringType(coding.getVersion());
             }
             
-            // ¸ÑªR ValueSet URL - «öÀu¥ý¯Å³B²z
+            // è§£æž ValueSet URL - æŒ‰å„ªå…ˆç´šè™•ç†
             ValueSet targetValueSet = null;
             if (resourceId != null) {
                 targetValueSet = getValueSetById(resourceId.getIdPart(), version);
             } else {
-                // ¸ÑªR URL °Ñ¼Æ
+                // è§£æž URL åƒæ•¸
                 UriType resolvedUrl = resolveUriParameter(url, urlCanonical);
                 UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical);
                 
@@ -239,11 +239,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 validateValidationParams(params.code(), params.system(), resourceId, url, valueSetUrl);
 
                 try {
-                	// ½T©w­n¨Ï¥Îªº systemVersion - Àu¥ý¨Ï¥Î params ¤¤ªºª©¥»
+                	// ç¢ºå®šè¦ä½¿ç”¨çš„ systemVersion - å„ªå…ˆä½¿ç”¨ params ä¸­çš„ç‰ˆæœ¬
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
                         params, resolvedSystemVersion);
                 	
-                    // ÅçÃÒ code ¬O§_¦b ValueSet ¤¤ - ¶Ç¤J systemVersion
+                    // é©—è­‰ code æ˜¯å¦åœ¨ ValueSet ä¸­ - å‚³å…¥ systemVersion
                     ValidationResult validationResult = validateCodeInValueSet(
                         targetValueSet, 
                         params.code(), 
@@ -262,7 +262,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         successfulParams = params; 
                         break;
                     } else {
-                        // «O¦s¥¢±ÑªºÅçÃÒ¤W¤U¤å
+                        // ä¿å­˜å¤±æ•—çš„é©—è­‰ä¸Šä¸‹æ–‡
                         failedValidationContext = new ValidationContext(
                             params.parameterSource(),
                             params.code(),
@@ -296,20 +296,20 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         matchedCodeSystem, "Code validation failed");
             }
 
-            // «Ø¥ß¦¨¥\¦^À³ - ¶Ç¤J¦¨¥\ÅçÃÒªº°Ñ¼Æ
+            // å»ºç«‹æˆåŠŸå›žæ‡‰ - å‚³å…¥æˆåŠŸé©—è­‰çš„åƒæ•¸
             StringType finalSystemVersion = determineEffectiveSystemVersion(successfulParams, resolvedSystemVersion);
             return buildSuccessResponse(successfulParams, matchedDisplay, matchedCodeSystem, 
                     targetValueSet, finalSystemVersion);
 
         } catch (InvalidRequestException | ResourceNotFoundException e) {
-            // ¸ÑªR systemVersion ¥Î©ó¿ù»~³B²z
+            // è§£æž systemVersion ç”¨æ–¼éŒ¯èª¤è™•ç†
             StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
             ValidationContext errorContext = new ValidationContext(
                 "code", code, system, display, ValidationErrorType.GENERAL_ERROR, null, resolvedSystemVersion
             );
             return buildValidationErrorWithOutcome(false, errorContext, null, e.getMessage());
         } catch (Exception e) {
-            // ¸ÑªR systemVersion ¥Î©ó¿ù»~³B²z
+            // è§£æž systemVersion ç”¨æ–¼éŒ¯èª¤è™•ç†
             StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
             ValidationContext errorContext = new ValidationContext(
                 "code", code, system, display, ValidationErrorType.INTERNAL_ERROR, null, resolvedSystemVersion
@@ -318,14 +318,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
     
-    // ·s¼W¤èªk¡G½T©w¦³®Äªº systemVersion
+    // æ–°å¢žæ–¹æ³•ï¼šç¢ºå®šæœ‰æ•ˆçš„ systemVersion
     private StringType determineEffectiveSystemVersion(ValidationParams params, StringType resolvedSystemVersion) {
-        // 1. Àu¥ý¨Ï¥Î coding ¤¤ªº version
+        // 1. å„ªå…ˆä½¿ç”¨ coding ä¸­çš„ version
         if (params.originalCoding() != null && params.originalCoding().hasVersion()) {
             return new StringType(params.originalCoding().getVersion());
         }
         
-        // 2. ¦pªG codeableConcept ¤¤ªº coding ¦³ version¡A¤]¨Ï¥Î¥¦
+        // 2. å¦‚æžœ codeableConcept ä¸­çš„ coding æœ‰ versionï¼Œä¹Ÿä½¿ç”¨å®ƒ
         if (params.originalCodeableConcept() != null) {
             for (Coding c : params.originalCodeableConcept().getCoding()) {
                 if (c.hasVersion()) {
@@ -334,33 +334,33 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
-        // 3. ³Ì«á¨Ï¥Î¸ÑªR«áªº resolvedSystemVersion
+        // 3. æœ€å¾Œä½¿ç”¨è§£æžå¾Œçš„ resolvedSystemVersion
         return resolvedSystemVersion;
     }
     
-    // ²Î¤@³B²z systemVersion °Ñ¼Æªº¤èªk
+    // çµ±ä¸€è™•ç† systemVersion åƒæ•¸çš„æ–¹æ³•
     private StringType resolveSystemVersionParameter(StringType stringVersion, CodeType codeVersion) {
         if (stringVersion != null && !stringVersion.isEmpty()) {
             return stringVersion;
         } else if (codeVersion != null && !codeVersion.isEmpty()) {
-            // ±N CodeType Âà´«¬° StringType
+            // å°‡ CodeType è½‰æ›ç‚º StringType
             return new StringType(codeVersion.getValue());
         }
         return null;
     }
 
-    // ²Î¤@³B²z UriType ©M CanonicalType ªº¤èªk
+    // çµ±ä¸€è™•ç† UriType å’Œ CanonicalType çš„æ–¹æ³•
     private UriType resolveUriParameter(UriType uriParam, CanonicalType canonicalParam) {
         if (uriParam != null && !uriParam.isEmpty()) {
             return uriParam;
         } else if (canonicalParam != null && !canonicalParam.isEmpty()) {
-            // ±N CanonicalType Âà´«¬° UriType
+            // å°‡ CanonicalType è½‰æ›ç‚º UriType
             return new UriType(canonicalParam.getValue());
         }
         return null;
     }
 
-    // ValidationContext °O¿ýÃþ¥H¤ä´© systemVersion
+    // ValidationContext è¨˜éŒ„é¡žä»¥æ”¯æ´ systemVersion
     private record ValidationContext(
     	    String parameterSource,
     	    CodeType code,
@@ -371,7 +371,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     	    StringType systemVersion
     	) {}
     
-    // validateCodeInValueSet ¤èªkÃ±¦W
+    // validateCodeInValueSet æ–¹æ³•ç°½å
     private ValidationResult validateCodeInValueSet(ValueSet valueSet, CodeType code, UriType system,
                                                   StringType display, CodeType displayLanguage, 
                                                   BooleanType abstractAllowed, StringType systemVersion) {
@@ -380,7 +380,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE);
         }
 
-        // Àu¥ýÀË¬d expansion¡]¦pªG¦s¦b¥B³Ì·s¡^
+        // å„ªå…ˆæª¢æŸ¥ expansionï¼ˆå¦‚æžœå­˜åœ¨ä¸”æœ€æ–°ï¼‰
         if (valueSet.hasExpansion() && isExpansionCurrent(valueSet.getExpansion())) {
             ValidationResult expansionResult = validateCodeInExpansion(
                 valueSet.getExpansion(), code, system, display, displayLanguage, abstractAllowed, systemVersion);
@@ -389,7 +389,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
 
-        // ³B²z compose ³W«h
+        // è™•ç† compose è¦å‰‡
         if (valueSet.hasCompose()) {
             return validateCodeInCompose(valueSet.getCompose(), code, system, display, 
                                        displayLanguage, abstractAllowed, systemVersion);
@@ -398,19 +398,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(false, null, null, null, ValidationErrorType.CODE_NOT_IN_VALUESET);
     }
 
-    // validateCodeInConceptSet ¤èªk¤¤Ãö©óª©¥»³B²zªºÅÞ¿è
+    // validateCodeInConceptSet æ–¹æ³•ä¸­é—œæ–¼ç‰ˆæœ¬è™•ç†çš„é‚è¼¯
     private ValidationResult validateCodeInConceptSet(ConceptSetComponent conceptSet, CodeType code, 
                                                     UriType system, StringType display, 
                                                     CodeType displayLanguage, BooleanType abstractAllowed,
                                                     boolean isInclude, StringType resolvedSystemVersion) {
         
-        // ÀË¬d system ¬O§_¤Ç°t
+        // æª¢æŸ¥ system æ˜¯å¦åŒ¹é…
         if (system != null && conceptSet.hasSystem() && 
             !system.getValue().equals(conceptSet.getSystem())) {
             return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE);
         }
 
-        // ¨ú±o CodeSystem - §ï¶iª©¥»³B²zÅÞ¿è
+        // å–å¾— CodeSystem - æ”¹é€²ç‰ˆæœ¬è™•ç†é‚è¼¯
         CodeSystem codeSystem = null;
         String systemUrl = conceptSet.hasSystem() ? conceptSet.getSystem() : 
                           (system != null ? system.getValue() : null);
@@ -419,7 +419,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             try {
                 String versionToUse = determineSystemVersion(conceptSet, resolvedSystemVersion);
                 
-                // ¨Ï¥Î·sªºª©¥»¦^°hµ¦²¤
+                // ä½¿ç”¨æ–°çš„ç‰ˆæœ¬å›žé€€ç­–ç•¥
                 if (versionToUse != null) {
                     codeSystem = findCodeSystemWithVersionFallback(systemUrl, versionToUse);
                 } else {
@@ -431,19 +431,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
 
-        // ¦pªG¦³©ú½Tªº concept ¦Cªí
+        // å¦‚æžœæœ‰æ˜Žç¢ºçš„ concept åˆ—è¡¨
         if (!conceptSet.getConcept().isEmpty()) {
             return validateCodeInConceptList(conceptSet.getConcept(), code, display, 
                                            displayLanguage, abstractAllowed, codeSystem);
         }
 
-        // ³B²z filter ±ø¥ó
+        // è™•ç† filter æ¢ä»¶
         if (!conceptSet.getFilter().isEmpty() && codeSystem != null) {
             return validateCodeWithFilters(conceptSet.getFilter(), codeSystem, code, display, 
                                          displayLanguage, abstractAllowed);
         }
 
-        // ¦pªG¨S¦³¯S©wªº concept ¤]¨S¦³ filter¡A«h¥]§t¾ã­Ó CodeSystem
+        // å¦‚æžœæ²’æœ‰ç‰¹å®šçš„ concept ä¹Ÿæ²’æœ‰ filterï¼Œå‰‡åŒ…å«æ•´å€‹ CodeSystem
         if (codeSystem != null) {
             return validateCodeInCodeSystem(codeSystem, code, display, displayLanguage, abstractAllowed);
         }
@@ -451,16 +451,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE);
     }
     
-    // ­×§ï determineSystemVersion ¤èªk - §óÆF¬¡ªºª©¥»¨M©wµ¦²¤
+    // ä¿®æ”¹ determineSystemVersion æ–¹æ³• - æ›´éˆæ´»çš„ç‰ˆæœ¬æ±ºå®šç­–ç•¥
     private String determineSystemVersion(ConceptSetComponent conceptSet, StringType resolvedSystemVersion) {
         String conceptSetVersion = conceptSet.hasVersion() ? conceptSet.getVersion() : null;
         String requestVersion = (resolvedSystemVersion != null && !resolvedSystemVersion.isEmpty()) 
                               ? resolvedSystemVersion.getValue() : null;
         
-        // ·sªºª©¥»¨M©wÅÞ¿è¡G
-        // 1. ¦pªG½Ð¨D¤¤©ú½T«ü©w¤F systemVersion¡AÀu¥ý¨Ï¥Î½Ð¨Dªºª©¥»
-        // 2. ¦pªG½Ð¨D¨S¦³«ü©wª©¥»¡A¦ý ValueSet ¤¤¦³«ü©w¡A¨Ï¥Î ValueSet ªºª©¥»
-        // 3. ¦pªG¨âªÌ³£¦³¦ý¤£¦P¡A¨Ï¥Î½Ð¨Dªºª©¥»¨Ã°O¿ýÄµ§i
+        // æ–°çš„ç‰ˆæœ¬æ±ºå®šé‚è¼¯ï¼š
+        // 1. å¦‚æžœè«‹æ±‚ä¸­æ˜Žç¢ºæŒ‡å®šäº† systemVersionï¼Œå„ªå…ˆä½¿ç”¨è«‹æ±‚çš„ç‰ˆæœ¬
+        // 2. å¦‚æžœè«‹æ±‚æ²’æœ‰æŒ‡å®šç‰ˆæœ¬ï¼Œä½† ValueSet ä¸­æœ‰æŒ‡å®šï¼Œä½¿ç”¨ ValueSet çš„ç‰ˆæœ¬
+        // 3. å¦‚æžœå…©è€…éƒ½æœ‰ä½†ä¸åŒï¼Œä½¿ç”¨è«‹æ±‚çš„ç‰ˆæœ¬ä¸¦è¨˜éŒ„è­¦å‘Š
         
         if (requestVersion != null) {
             if (conceptSetVersion != null && !conceptSetVersion.equals(requestVersion)) {
@@ -470,39 +470,45 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             return requestVersion;
         }
         
-        // ¦pªG¨S¦³½Ð¨Dª©¥»¡A¨Ï¥Î ValueSet ¤¤©w¸qªºª©¥»
+        // å¦‚æžœæ²’æœ‰è«‹æ±‚ç‰ˆæœ¬ï¼Œä½¿ç”¨ ValueSet ä¸­å®šç¾©çš„ç‰ˆæœ¬
         return conceptSetVersion;
     }
 
-    private ValidationResult validateCodeInCompose(ValueSetComposeComponent compose, CodeType code, 
-                                                 UriType system, StringType display, 
+    private ValidationResult validateCodeInCompose(ValueSetComposeComponent compose, CodeType code,
+                                                 UriType system, StringType display,
                                                  CodeType displayLanguage, BooleanType abstractAllowed,
                                                  StringType systemVersion) {
-        
+
         boolean foundInInclude = false;
         ValidationResult includeResult = null;
-        
-        // ÀË¬d include ³¡¤À
+        CodeSystem lastCheckedCodeSystem = null;
+
+        // æª¢æŸ¥ include éƒ¨åˆ†
         for (ConceptSetComponent include : compose.getInclude()) {
-            ValidationResult result = validateCodeInConceptSet(include, code, system, display, 
+            ValidationResult result = validateCodeInConceptSet(include, code, system, display,
                                                              displayLanguage, abstractAllowed, true, systemVersion);
+            // ä¿ç•™æ‰¾åˆ°çš„ CodeSystemï¼Œå³ä½¿é©—è­‰å¤±æ•—
+            if (result.codeSystem() != null) {
+                lastCheckedCodeSystem = result.codeSystem();
+            }
             if (result.isValid()) {
                 foundInInclude = true;
                 includeResult = result;
                 break;
             }
         }
-        
+
         if (!foundInInclude) {
-            return new ValidationResult(false, null, null, null, ValidationErrorType.CODE_NOT_IN_VALUESET);
+            // å³ä½¿é©—è­‰å¤±æ•—ï¼Œä¹Ÿè¦å›žå‚³æ‰¾åˆ°çš„ CodeSystem
+            return new ValidationResult(false, null, lastCheckedCodeSystem, null, ValidationErrorType.CODE_NOT_IN_VALUESET);
         }
         
-        // ÀË¬d exclude ³¡¤À
+        // æª¢æŸ¥ exclude éƒ¨åˆ†
         for (ConceptSetComponent exclude : compose.getExclude()) {
             ValidationResult result = validateCodeInConceptSet(exclude, code, system, display, 
                                                              displayLanguage, abstractAllowed, false, systemVersion);
             if (result.isValid()) {
-                // ¦b exclude ¤¤§ä¨ì¡Aªí¥Ü¸Ó code ³Q±Æ°£
+                // åœ¨ exclude ä¸­æ‰¾åˆ°ï¼Œè¡¨ç¤ºè©² code è¢«æŽ’é™¤
                 return new ValidationResult(false, result.concept(), result.codeSystem(), 
                                           result.display(), ValidationErrorType.CODE_NOT_IN_VALUESET);
             }
@@ -511,7 +517,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return includeResult;
     }
 
-    // ­×§ï validateCodeInExpansion ¤èªkÃ±¦W
+    // ä¿®æ”¹ validateCodeInExpansion æ–¹æ³•ç°½å
     private ValidationResult validateCodeInExpansion(ValueSetExpansionComponent expansion, 
                                                    CodeType code, UriType system, StringType display,
                                                    CodeType displayLanguage, BooleanType abstractAllowed,
@@ -528,32 +534,32 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(false, null, null, null, ValidationErrorType.CODE_NOT_IN_VALUESET);
     }
 
- // ­×§ï validateCodeInExpansionContains ¤èªk¡A§ï¶iª©¥»¤Ç°tÅÞ¿è
+ // ä¿®æ”¹ validateCodeInExpansionContains æ–¹æ³•ï¼Œæ”¹é€²ç‰ˆæœ¬åŒ¹é…é‚è¼¯
     private ValidationResult validateCodeInExpansionContains(ValueSetExpansionContainsComponent contains,
                                                            CodeType code, UriType system, StringType display,
                                                            CodeType displayLanguage, BooleanType abstractAllowed,
                                                            StringType resolvedSystemVersion) {
         
-        // ÀË¬d·í«e¼h¯Å
+        // æª¢æŸ¥ç•¶å‰å±¤ç´š
         if (code.getValue().equals(contains.getCode()) && 
             (system == null || system.getValue().equals(contains.getSystem()))) {
             
-            // §ï¶iª©¥»¤Ç°tÅÞ¿è
+            // æ”¹é€²ç‰ˆæœ¬åŒ¹é…é‚è¼¯
             if (!isVersionMatch(contains, resolvedSystemVersion)) {
-                // ª©¥»¤£¤Ç°t¡A°O¿ý½Õ¸Õ«H®§¦ýÄ~Äò´M§ä
+                // ç‰ˆæœ¬ä¸åŒ¹é…ï¼Œè¨˜éŒ„èª¿è©¦ä¿¡æ¯ä½†ç¹¼çºŒå°‹æ‰¾
                 System.out.println("Version mismatch: expansion contains version = " + 
                                  (contains.hasVersion() ? contains.getVersion() : "null") +
                                  ", requested version = " + 
                                  (resolvedSystemVersion != null ? resolvedSystemVersion.getValue() : "null"));
             } else {
-                // ÀË¬d¬O§_¬°©â¶H·§©À
+                // æª¢æŸ¥æ˜¯å¦ç‚ºæŠ½è±¡æ¦‚å¿µ
                 if (contains.hasAbstract() && contains.getAbstract() && 
                     (abstractAllowed == null || !abstractAllowed.getValue())) {
                     return new ValidationResult(false, null, null, null, 
                                               ValidationErrorType.ABSTRACT_CODE_NOT_ALLOWED);
                 }
                 
-                // ÅçÃÒ display
+                // é©—è­‰ display
                 if (display != null && !display.isEmpty() && contains.hasDisplay() && 
                     !display.getValue().equalsIgnoreCase(contains.getDisplay())) {
                     return new ValidationResult(false, null, null, contains.getDisplay(), 
@@ -564,7 +570,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
-        // »¼ÂkÀË¬d¤l·§©À
+        // éžæ­¸æª¢æŸ¥å­æ¦‚å¿µ
         for (ValueSetExpansionContainsComponent child : contains.getContains()) {
             ValidationResult result = validateCodeInExpansionContains(child, code, system, display, 
                                                                     displayLanguage, abstractAllowed, resolvedSystemVersion);
@@ -576,42 +582,42 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE);
     }
     
-    // ­×§ï validateCodeInExpansionContains ¤¤ªºª©¥»¤Ç°tÅÞ¿è
+    // ä¿®æ”¹ validateCodeInExpansionContains ä¸­çš„ç‰ˆæœ¬åŒ¹é…é‚è¼¯
     private boolean isVersionMatch(ValueSetExpansionContainsComponent contains, StringType resolvedSystemVersion) {
-        // ¦pªG¨S¦³«ü©w systemVersion¡A«h¥ô¦óª©¥»³£¤Ç°t
+        // å¦‚æžœæ²’æœ‰æŒ‡å®š systemVersionï¼Œå‰‡ä»»ä½•ç‰ˆæœ¬éƒ½åŒ¹é…
         if (resolvedSystemVersion == null || resolvedSystemVersion.isEmpty()) {
             return true;
         }
         
         String requestedVersion = resolvedSystemVersion.getValue();
         
-        // ¦pªG expansion ¤¤¨S¦³ª©¥»«H®§¡AÀË¬d¬O§_¬°"µLª©¥»"ªº¤Ç°t
+        // å¦‚æžœ expansion ä¸­æ²’æœ‰ç‰ˆæœ¬ä¿¡æ¯ï¼Œæª¢æŸ¥æ˜¯å¦ç‚º"ç„¡ç‰ˆæœ¬"çš„åŒ¹é…
         if (!contains.hasVersion()) {
-            // ¦pªG½Ð¨Dªº¬OªÅ¦r¦ê©Î"latest"¡Aµø¬°¤Ç°tµLª©¥»ªº·§©À
+            // å¦‚æžœè«‹æ±‚çš„æ˜¯ç©ºå­—ä¸²æˆ–"latest"ï¼Œè¦–ç‚ºåŒ¹é…ç„¡ç‰ˆæœ¬çš„æ¦‚å¿µ
             return requestedVersion.isEmpty() || "latest".equals(requestedVersion);
         }
         
-        // ºë½Tª©¥»¤Ç°t
+        // ç²¾ç¢ºç‰ˆæœ¬åŒ¹é…
         return requestedVersion.equals(contains.getVersion());
     }
     
- // §ïµ½ CodeSystem ·j´M¡A¤ä´©ª©¥»¦^°hµ¦²¤
+ // æ”¹å–„ CodeSystem æœå°‹ï¼Œæ”¯æ´ç‰ˆæœ¬å›žé€€ç­–ç•¥
     private CodeSystem findCodeSystemWithVersionFallback(String url, String preferredVersion) {
         try {
-            // ­º¥ý¹Á¸Õ§ä«ü©wª©¥»
+            // é¦–å…ˆå˜—è©¦æ‰¾æŒ‡å®šç‰ˆæœ¬
             return findCodeSystemByUrl(url, preferredVersion);
         } catch (ResourceNotFoundException e) {
             if (StringUtils.isNotBlank(preferredVersion)) {
                 System.out.println("Preferred version not found, attempting version fallback...");
                 
-                // ¹Á¸Õ§ä³Ì·sª©¥»
+                // å˜—è©¦æ‰¾æœ€æ–°ç‰ˆæœ¬
                 try {
                     CodeSystem latestVersion = findLatestCodeSystemVersion(url);
                     System.out.println("Using latest available version: " + 
                                      (latestVersion.hasVersion() ? latestVersion.getVersion() : "no version"));
                     return latestVersion;
                 } catch (ResourceNotFoundException fallbackException) {
-                    // ¦pªG³s³Ì·sª©¥»³£§ä¤£¨ì¡A©ß¥X­ì©l²§±`
+                    // å¦‚æžœé€£æœ€æ–°ç‰ˆæœ¬éƒ½æ‰¾ä¸åˆ°ï¼Œæ‹‹å‡ºåŽŸå§‹ç•°å¸¸
                     throw e;
                 }
             } else {
@@ -620,12 +626,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
-    // ¬d§ä³Ì·sª©¥»ªº CodeSystem
+    // æŸ¥æ‰¾æœ€æ–°ç‰ˆæœ¬çš„ CodeSystem
     private CodeSystem findLatestCodeSystemVersion(String url) {
         var searchParams = new SearchParameterMap();
         searchParams.add(CodeSystem.SP_URL, new UriParam(url));
         
-        // «öª©¥»±Æ§Ç¡]¦pªG¹ê§@¤ä´©ªº¸Ü¡^
+        // æŒ‰ç‰ˆæœ¬æŽ’åºï¼ˆå¦‚æžœå¯¦ä½œæ”¯æ´çš„è©±ï¼‰
         searchParams.setSort(new SortSpec(CodeSystem.SP_VERSION).setOrder(SortOrderEnum.DESC));
         
         var searchResult = myCodeSystemDao.search(searchParams, new SystemRequestDetails());
@@ -638,63 +644,63 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return (CodeSystem) searchResult.getResources(0, 1).get(0);
     }
 
- // ­×§ï buildSuccessResponse ¤èªk¡A½T«O¥¿½T¦^¶Ç coding ¤¤ªºª©¥»
+ // ä¿®æ”¹ buildSuccessResponse æ–¹æ³•ï¼Œç¢ºä¿æ­£ç¢ºå›žå‚³ coding ä¸­çš„ç‰ˆæœ¬
     private Parameters buildSuccessResponse(ValidationParams successfulParams, String matchedDisplay, 
             								CodeSystem matchedCodeSystem, ValueSet targetValueSet,
             								StringType effectiveSystemVersion) {
         Parameters result = new Parameters();
 
-        // 1. code °Ñ¼Æ
+        // 1. code åƒæ•¸
         if (successfulParams != null && successfulParams.code() != null) {
             result.addParameter("code", successfulParams.code());
         }
 
-        // 2. display °Ñ¼Æ - Àu¥ý¨Ï¥Î­ì©l½Ð¨D¤¤ªº display¡A¦pªGÅçÃÒ³q¹Lªº¸Ü
+        // 2. display åƒæ•¸ - å„ªå…ˆä½¿ç”¨åŽŸå§‹è«‹æ±‚ä¸­çš„ displayï¼Œå¦‚æžœé©—è­‰é€šéŽçš„è©±
         String displayToReturn = null;
         
-        // ¦pªG­ì©l½Ð¨D¦³ display °Ñ¼Æ¡AÀu¥ý¨Ï¥Î¥¦¡]«e´£¬OÅçÃÒ³q¹L¡^
+        // å¦‚æžœåŽŸå§‹è«‹æ±‚æœ‰ display åƒæ•¸ï¼Œå„ªå…ˆä½¿ç”¨å®ƒï¼ˆå‰ææ˜¯é©—è­‰é€šéŽï¼‰
         if (successfulParams != null && successfulParams.display() != null && 
             !successfulParams.display().isEmpty()) {
             displayToReturn = successfulParams.display().getValue();
         } 
-        // ¦pªG­ì©l½Ð¨D¨S¦³ display¡A«h¨Ï¥Î±q CodeSystem ©ÎÅçÃÒ¹Lµ{¤¤§ä¨ìªº display
+        // å¦‚æžœåŽŸå§‹è«‹æ±‚æ²’æœ‰ displayï¼Œå‰‡ä½¿ç”¨å¾ž CodeSystem æˆ–é©—è­‰éŽç¨‹ä¸­æ‰¾åˆ°çš„ display
         else if (matchedDisplay != null) {
             displayToReturn = matchedDisplay;
         }
         
-        // ¥u­n¦³ display ­È´N²K¥[¨ì¦^À³¤¤
+        // åªè¦æœ‰ display å€¼å°±æ·»åŠ åˆ°å›žæ‡‰ä¸­
         if (displayToReturn != null) {
             result.addParameter("display", new StringType(displayToReturn));
         }
 
-        // 3. result °Ñ¼Æ
+        // 3. result åƒæ•¸
         result.addParameter("result", new BooleanType(true));
 
-        // 4. system °Ñ¼Æ - ²Î¤@¨Ï¥Î UriType ®æ¦¡¦^¶Ç
+        // 4. system åƒæ•¸ - çµ±ä¸€ä½¿ç”¨ UriType æ ¼å¼å›žå‚³
         if (successfulParams != null && successfulParams.system() != null && !successfulParams.system().isEmpty()) {
             result.addParameter("system", successfulParams.system());
         } else if (matchedCodeSystem != null && matchedCodeSystem.hasUrl()) {
             result.addParameter("system", new UriType(matchedCodeSystem.getUrl()));
         }
 
-        // 5. version °Ñ¼Æ - ¨Ï¥Î effectiveSystemVersion
+        // 5. version åƒæ•¸ - ä½¿ç”¨ effectiveSystemVersion
         String versionToReturn = null;
         
-        // Àu¥ý¨Ï¥Î¦³®Äªº systemVersion °Ñ¼Æ
+        // å„ªå…ˆä½¿ç”¨æœ‰æ•ˆçš„ systemVersion åƒæ•¸
         if (effectiveSystemVersion != null && !effectiveSystemVersion.isEmpty()) {
             versionToReturn = effectiveSystemVersion.getValue();
         } 
-        // ¦pªG¨S¦³¦³®Äªº systemVersion¡A«h¨Ï¥Î CodeSystem ªºª©¥»
+        // å¦‚æžœæ²’æœ‰æœ‰æ•ˆçš„ systemVersionï¼Œå‰‡ä½¿ç”¨ CodeSystem çš„ç‰ˆæœ¬
         else if (matchedCodeSystem != null && matchedCodeSystem.hasVersion()) {
             versionToReturn = matchedCodeSystem.getVersion();
         }
         
-        // ¥u¦³·í¦³ª©¥»¸ê°T®É¤~²K¥[ version °Ñ¼Æ
+        // åªæœ‰ç•¶æœ‰ç‰ˆæœ¬è³‡è¨Šæ™‚æ‰æ·»åŠ  version åƒæ•¸
         if (versionToReturn != null) {
             result.addParameter("version", new StringType(versionToReturn));
         }
 
-        // 6. codeableConcept °Ñ¼Æ - ¥u¦³¦b­ì©l½Ð¨D¥]§t®É¤~¦^¶Ç
+        // 6. codeableConcept åƒæ•¸ - åªæœ‰åœ¨åŽŸå§‹è«‹æ±‚åŒ…å«æ™‚æ‰å›žå‚³
         if (successfulParams != null && successfulParams.originalCodeableConcept() != null) {
             result.addParameter("codeableConcept", successfulParams.originalCodeableConcept());
         }
@@ -702,24 +708,33 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return result;
     }
 
-    // ­×§ï¿ù»~¦^À³¤èªk¥H¤ä´© systemVersion ¬ÛÃö¿ù»~
+    // ä¿®æ”¹éŒ¯èª¤å›žæ‡‰æ–¹æ³•ä»¥æ”¯æ´ systemVersion ç›¸é—œéŒ¯èª¤
     private Parameters buildValidationErrorWithOutcome(boolean isValid, ValidationContext context,
                                                       CodeSystem codeSystem, String errorMessage) {
         Parameters result = new Parameters();
 
-        // ²K¥[°ò¥»°Ñ¼Æ
+        // æ·»åŠ åŸºæœ¬åƒæ•¸
         if (context.code() != null) {
             result.addParameter("code", context.code());
         }
 
-        // «Ø¥ß OperationOutcome ¥]§t¦h­Ó issue
+        // å˜—è©¦å¾ž CodeSystem ä¸­æ‰¾åˆ° concept ä»¥å–å¾— display
+        if (codeSystem != null && context.code() != null) {
+            ConceptDefinitionComponent concept = findConceptRecursive(
+                codeSystem.getConcept(), context.code().getValue());
+            if (concept != null && concept.hasDisplay()) {
+                result.addParameter("display", new StringType(concept.getDisplay()));
+            }
+        }
+
+        // å»ºç«‹ OperationOutcome åŒ…å«å¤šå€‹ issue
         OperationOutcome outcome = new OperationOutcome();
         
-        // ÀË¬d¬O§_¬° systemVersion ¬ÛÃö¿ù»~
+        // æª¢æŸ¥æ˜¯å¦ç‚º systemVersion ç›¸é—œéŒ¯èª¤
         if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
             context.systemVersion() != null && !context.systemVersion().isEmpty()) {
             
-            // Issue 1: CodeSystem ª©¥»§ä¤£¨ìªº¿ù»~
+            // Issue 1: CodeSystem ç‰ˆæœ¬æ‰¾ä¸åˆ°çš„éŒ¯èª¤
             var versionIssue = outcome.addIssue();
             versionIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
             versionIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
@@ -743,7 +758,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             versionIssue.addLocation("system");
             versionIssue.addExpression("system");
 
-            // Issue 2: ValueSet µLªkÅçÃÒªºÄµ§i
+            // Issue 2: ValueSet ç„¡æ³•é©—è­‰çš„è­¦å‘Š
             var valueSetWarning = outcome.addIssue();
             valueSetWarning.setSeverity(OperationOutcome.IssueSeverity.WARNING);
             valueSetWarning.setCode(OperationOutcome.IssueType.NOTFOUND);
@@ -764,7 +779,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             vsWarningDetails.setText(vsWarningMessage);
             valueSetWarning.setDetails(vsWarningDetails);
         } else {
-            // ­ì¦³ªº¿ù»~³B²zÅÞ¿è
+            // åŽŸæœ‰çš„éŒ¯èª¤è™•ç†é‚è¼¯
             if (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET || 
                 context.errorType() == ValidationErrorType.INVALID_CODE) {
                 var valueSetIssue = outcome.addIssue();
@@ -818,13 +833,13 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
 
-        // ²K¥[¨ä¥L¯S©w¿ù»~Ãþ«¬ªº issue
+        // æ·»åŠ å…¶ä»–ç‰¹å®šéŒ¯èª¤é¡žåž‹çš„ issue
         addSpecificErrorIssues(outcome, context, codeSystem);
 
-        // ²K¥[ issues °Ñ¼Æ
+        // æ·»åŠ  issues åƒæ•¸
         result.addParameter().setName("issues").setResource(outcome);
 
-        // ²K¥[ message °Ñ¼Æ
+        // æ·»åŠ  message åƒæ•¸
         String mainErrorMessage;
         if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
             context.systemVersion() != null && !context.systemVersion().isEmpty()) {
@@ -834,20 +849,22 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         result.addParameter("message", new StringType(mainErrorMessage));
 
-        // ²K¥[ result °Ñ¼Æ
+        // æ·»åŠ  result åƒæ•¸
         result.addParameter("result", new BooleanType(isValid));
 
-        // ²K¥[ system °Ñ¼Æ
+        // æ·»åŠ  system åƒæ•¸
         if (context.system() != null) {
             result.addParameter("system", context.system());
         }
 
-        // ²K¥[ version °Ñ¼Æ¡]¦pªG¦³ systemVersion¡^
+        // æ·»åŠ  version åƒæ•¸ï¼ˆå„ªå…ˆä½¿ç”¨ context.systemVersionï¼Œå¦å‰‡ä½¿ç”¨ CodeSystem.versionï¼‰
         if (context.systemVersion() != null && !context.systemVersion().isEmpty()) {
             result.addParameter("version", context.systemVersion());
+        } else if (codeSystem != null && codeSystem.hasVersion()) {
+            result.addParameter("version", new StringType(codeSystem.getVersion()));
         }
 
-        // ²K¥[ x-caused-by-unknown-system °Ñ¼Æ¡]·í¨t²Î§ä¤£¨ì®É¡^
+        // æ·»åŠ  x-caused-by-unknown-system åƒæ•¸ï¼ˆç•¶ç³»çµ±æ‰¾ä¸åˆ°æ™‚ï¼‰
         if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
             context.system() != null && context.systemVersion() != null) {
             String canonicalUrl = context.system().getValue() + "|" + context.systemVersion().getValue();
@@ -856,7 +873,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
         return result;
     }
-    // «Ø¥ß CodeSystem ª©¥»¿ù»~°T®§
+    // å»ºç«‹ CodeSystem ç‰ˆæœ¬éŒ¯èª¤è¨Šæ¯
     private String buildCodeSystemVersionErrorMessage(ValidationContext context) {
         if (context.system() != null && context.systemVersion() != null) {
             return String.format("%s|%s", 
@@ -866,7 +883,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return "CodeSystem with specified version not found";
     }
 
-    // «Ø¥ß ValueSet Äµ§i°T®§
+    // å»ºç«‹ ValueSet è­¦å‘Šè¨Šæ¯
     private String buildValueSetWarningMessage(ValidationContext context) {
         if (context.valueSet() != null && context.valueSet().hasUrl()) {
             String version = context.valueSet().hasVersion() ? context.valueSet().getVersion() : "unknown";
@@ -875,7 +892,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return "Unable to validate against ValueSet";
     }
 
-    // ­×§ï buildCodeSystemErrorMessage ¥H¤ä´© systemVersion
+    // ä¿®æ”¹ buildCodeSystemErrorMessage ä»¥æ”¯æ´ systemVersion
     private String buildCodeSystemErrorMessage(ValidationContext context, CodeSystem codeSystem) {
         String code = (context.code() != null) ? context.code().getValue() : "null";
         String systemUrl = null;
@@ -887,7 +904,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             systemUrl = codeSystem.getUrl();
         }
 
-        // Àu¥ý¨Ï¥Î systemVersion¡AµM«á¬O CodeSystem ªºª©¥»
+        // å„ªå…ˆä½¿ç”¨ systemVersionï¼Œç„¶å¾Œæ˜¯ CodeSystem çš„ç‰ˆæœ¬
         if (context.systemVersion() != null && !context.systemVersion().isEmpty()) {
             version = context.systemVersion().getValue();
         } else if (codeSystem != null && codeSystem.hasVersion()) {
@@ -897,12 +914,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
 
         if (systemUrl != null) {
-            // ¦pªG¬Oª©¥»§ä¤£¨ìªº¿ù»~¡A¥u¦^¶Ç¨t²Î|ª©¥»®æ¦¡
+            // å¦‚æžœæ˜¯ç‰ˆæœ¬æ‰¾ä¸åˆ°çš„éŒ¯èª¤ï¼Œåªå›žå‚³ç³»çµ±|ç‰ˆæœ¬æ ¼å¼
             if (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND && 
                 context.systemVersion() != null) {
                 return String.format("%s|%s", systemUrl, version);
             }
-            // §_«h¦^¶Ç§¹¾ãªº¿ù»~°T®§
+            // å¦å‰‡å›žå‚³å®Œæ•´çš„éŒ¯èª¤è¨Šæ¯
             return String.format("Unknown code '%s' in CodeSystem '%s' (version '%s')",
                 code, systemUrl, version);
         }
@@ -910,12 +927,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return String.format("Unknown code '%s' in the specified CodeSystem", code);
     }
 
-    // ¨ä¥L¤èªk¹ê²{...
+    // å…¶ä»–æ–¹æ³•å¯¦ç¾...
     private boolean isExpansionCurrent(ValueSetExpansionComponent expansion) {
         if (!expansion.hasTimestamp()) {
             return false;
         }
-        return true; // Â²¤Æ¹ê§@
+        return true; // ç°¡åŒ–å¯¦ä½œ
     }
 
     private ValidationResult validateCodeWithFilters(List<ConceptSetFilterComponent> filters, 
@@ -928,7 +945,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             return new ValidationResult(false, null, codeSystem, null, ValidationErrorType.INVALID_CODE);
         }
 
-        // ÀË¬d©Ò¦³ filter ±ø¥ó
+        // æª¢æŸ¥æ‰€æœ‰ filter æ¢ä»¶
         for (ConceptSetFilterComponent filter : filters) {
             if (!evaluateFilter(filter, concept, codeSystem)) {
                 return new ValidationResult(false, concept, codeSystem, null, 
@@ -936,7 +953,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
 
-        // ³q¹L©Ò¦³ filter¡A¶i¦æ¨ä¥LÅçÃÒ
+        // é€šéŽæ‰€æœ‰ filterï¼Œé€²è¡Œå…¶ä»–é©—è­‰
         if (isAbstractConcept(concept) && (abstractAllowed == null || !abstractAllowed.getValue())) {
             return new ValidationResult(false, concept, codeSystem, null, 
                                       ValidationErrorType.ABSTRACT_CODE_NOT_ALLOWED);
@@ -952,7 +969,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(true, concept, codeSystem, resolvedDisplay, null);
     }
 
-    // µû¦ô filter ±ø¥óªº¹ê²{
+    // è©•ä¼° filter æ¢ä»¶çš„å¯¦ç¾
     private boolean evaluateFilter(ConceptSetFilterComponent filter, ConceptDefinitionComponent concept, 
                                  CodeSystem codeSystem) {
         String property = filter.getProperty();
@@ -1176,7 +1193,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return false;
     }
 
-    // ¦b concept ¦Cªí¤¤ÅçÃÒ
+    // åœ¨ concept åˆ—è¡¨ä¸­é©—è­‰
     private ValidationResult validateCodeInConceptList(List<ConceptReferenceComponent> concepts, 
                                                      CodeType code, StringType display, 
                                                      CodeType displayLanguage, BooleanType abstractAllowed,
@@ -1219,7 +1236,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return new ValidationResult(false, null, codeSystem, null, ValidationErrorType.INVALID_CODE);
     }
 
-    // ­×§ïÅçÃÒÅÞ¿è¡A¦b display ¤£¤Ç°t®Éµo¥XÄµ§i¦ý¤£ªý¤îÅçÃÒ¦¨¥\
+    // ä¿®æ”¹é©—è­‰é‚è¼¯ï¼Œåœ¨ display ä¸åŒ¹é…æ™‚ç™¼å‡ºè­¦å‘Šä½†ä¸é˜»æ­¢é©—è­‰æˆåŠŸ
     private ValidationResult validateCodeInCodeSystem(CodeSystem codeSystem, CodeType code, 
                                                      StringType display, CodeType displayLanguage, 
                                                      BooleanType abstractAllowed) {
@@ -1234,11 +1251,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                       ValidationErrorType.ABSTRACT_CODE_NOT_ALLOWED);
         }
 
-        // ÀË¬d display ¬O§_¦³®Ä¡A¦ý¤£Åý display ¤£¤Ç°tªý¤îÅçÃÒ¦¨¥\
+        // æª¢æŸ¥ display æ˜¯å¦æœ‰æ•ˆï¼Œä½†ä¸è®“ display ä¸åŒ¹é…é˜»æ­¢é©—è­‰æˆåŠŸ
         boolean isValidDisplay = isDisplayValidExtended(concept, display, displayLanguage);
         
-        // ¦pªG±z§Æ±æÄY®æÅçÃÒ display¡A½Ð«O¯d¥H¤Uµ{¦¡½X
-        // ¦pªG±z§Æ±æ¼eÃPÅçÃÒ¡A½Ðµù¸Ñ±¼¥H¤Uµ{¦¡½X
+        // å¦‚æžœæ‚¨å¸Œæœ›åš´æ ¼é©—è­‰ displayï¼Œè«‹ä¿ç•™ä»¥ä¸‹ç¨‹å¼ç¢¼
+        // å¦‚æžœæ‚¨å¸Œæœ›å¯¬é¬†é©—è­‰ï¼Œè«‹è¨»è§£æŽ‰ä»¥ä¸‹ç¨‹å¼ç¢¼
         /*
         if (!isValidDisplay && display != null && !display.isEmpty()) {
             return new ValidationResult(false, concept, codeSystem, null, 
@@ -1246,7 +1263,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         */
         
-        // °O¿ý display ¤£¤Ç°tªºÄµ§i¡]¦pªG»Ý­n¡^
+        // è¨˜éŒ„ display ä¸åŒ¹é…çš„è­¦å‘Šï¼ˆå¦‚æžœéœ€è¦ï¼‰
         if (!isValidDisplay && display != null && !display.isEmpty()) {
             System.out.println("Warning: Display '" + display.getValue() + 
                              "' does not match expected display for code '" + code.getValue() + "'");
@@ -1255,7 +1272,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         String resolvedDisplay = getDisplayForLanguage(concept, displayLanguage);
         return new ValidationResult(true, concept, codeSystem, resolvedDisplay, null);
     }
-    // ÀË¬d·§©À¬O§_¬°©â¶H·§©À
+    // æª¢æŸ¥æ¦‚å¿µæ˜¯å¦ç‚ºæŠ½è±¡æ¦‚å¿µ
     private boolean isAbstractConcept(ConceptDefinitionComponent concept) {
         for (ConceptPropertyComponent property : concept.getProperty()) {
             if ("abstract".equals(property.getCode()) && 
@@ -1267,12 +1284,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return false;
     }
 
-	 // ¦P®É»Ý­n­×§ï display ÅçÃÒÅÞ¿è¡A½T«O¦b¦³ display °Ñ¼Æ®É¶i¦æ¾A·íªºÅçÃÒ
-	 // ­×§ï isDisplayValidExtended ¤èªk¡A¨Ï¨ä¦bÅçÃÒ¥¢±Ñ®É¤£¼vÅT¾ãÅéÅçÃÒµ²ªG¡]¦pªG»Ý­n¼eÃPÅçÃÒ¡^
+	 // åŒæ™‚éœ€è¦ä¿®æ”¹ display é©—è­‰é‚è¼¯ï¼Œç¢ºä¿åœ¨æœ‰ display åƒæ•¸æ™‚é€²è¡Œé©ç•¶çš„é©—è­‰
+	 // ä¿®æ”¹ isDisplayValidExtended æ–¹æ³•ï¼Œä½¿å…¶åœ¨é©—è­‰å¤±æ•—æ™‚ä¸å½±éŸ¿æ•´é«”é©—è­‰çµæžœï¼ˆå¦‚æžœéœ€è¦å¯¬é¬†é©—è­‰ï¼‰
 	 private boolean isDisplayValidExtended(ConceptDefinitionComponent concept, StringType display, 
 	                                      CodeType displayLanguage) {
 	     if (display == null || display.isEmpty()) {
-	         return true; // ¨S¦³ display °Ñ¼Æ®Éµø¬°¦³®Ä
+	         return true; // æ²’æœ‰ display åƒæ•¸æ™‚è¦–ç‚ºæœ‰æ•ˆ
 	     }
 	
 	     String expected = getDisplayForLanguage(concept, displayLanguage);
@@ -1280,15 +1297,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	         return true;
 	     }
 	
-	     // ÀË¬d©Ò¦³ designation
+	     // æª¢æŸ¥æ‰€æœ‰ designation
 	     for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
 	         if (display.getValue().equalsIgnoreCase(desig.getValue())) {
 	             return true;
 	         }
 	     }
 	     
-	     // ¦pªG±z§Æ±æ¦b display ¤£¤Ç°t®É¤´µM¦^¶Ç¦¨¥\¡A¥i¥H¦b³o¸Ì¦^¶Ç true
-	     // ¨Ã¦b©I¥sºÝ°O¿ýÄµ§i¡A³o¼Ë¥i¥Hº¡¨¬±zªº½d¨Ò»Ý¨D
+	     // å¦‚æžœæ‚¨å¸Œæœ›åœ¨ display ä¸åŒ¹é…æ™‚ä»ç„¶å›žå‚³æˆåŠŸï¼Œå¯ä»¥åœ¨é€™è£¡å›žå‚³ true
+	     // ä¸¦åœ¨å‘¼å«ç«¯è¨˜éŒ„è­¦å‘Šï¼Œé€™æ¨£å¯ä»¥æ»¿è¶³æ‚¨çš„ç¯„ä¾‹éœ€æ±‚
 	     return false;
 	 }
 
@@ -1305,7 +1322,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return concept.getDisplay();
     }
 
-    // ²K¥[¨ä¥L¯S©w¿ù»~Ãþ«¬ªº issue
+    // æ·»åŠ å…¶ä»–ç‰¹å®šéŒ¯èª¤é¡žåž‹çš„ issue
     private void addSpecificErrorIssues(OperationOutcome outcome, ValidationContext context, 
                                        CodeSystem codeSystem) {
         switch (context.errorType()) {
@@ -1357,7 +1374,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
-    // ¬° display ¿ù»~³]©w location ©M expression
+    // ç‚º display éŒ¯èª¤è¨­å®š location å’Œ expression
     private void setDisplayLocationAndExpression(OperationOutcome.OperationOutcomeIssueComponent issue, 
                                               ValidationContext context) {
         if ("coding".equals(context.parameterSource())) {
@@ -1373,14 +1390,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
- // ­×§ï extractMultipleValidationParams ¤èªk¥H¥¿½T³B²z coding ¤¤ªº©Ò¦³Äæ¦ì
+ // ä¿®æ”¹ extractMultipleValidationParams æ–¹æ³•ä»¥æ­£ç¢ºè™•ç† coding ä¸­çš„æ‰€æœ‰æ¬„ä½
     private List<ValidationParams> extractMultipleValidationParams(CodeType code, UriType resolvedSystem, 
                                                                  StringType display, Coding coding, 
                                                                  CodeableConcept codeableConcept) {
         List<ValidationParams> paramsList = new ArrayList<>();
 
         if (coding != null) {
-            // Àu¥ý¨Ï¥Î coding ¤¤ªº system¡A¦pªG¨S¦³«h¨Ï¥Î resolvedSystem
+            // å„ªå…ˆä½¿ç”¨ coding ä¸­çš„ systemï¼Œå¦‚æžœæ²’æœ‰å‰‡ä½¿ç”¨ resolvedSystem
             UriType codingSystem = null;
             if (coding.hasSystem()) {
                 codingSystem = coding.getSystemElement();
@@ -1388,7 +1405,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 codingSystem = resolvedSystem;
             }
             
-            // Àu¥ý¨Ï¥Î coding ¤¤ªº display¡A¦pªG¨S¦³«h¨Ï¥Î°Ñ¼Æ¤¤ªº display
+            // å„ªå…ˆä½¿ç”¨ coding ä¸­çš„ displayï¼Œå¦‚æžœæ²’æœ‰å‰‡ä½¿ç”¨åƒæ•¸ä¸­çš„ display
             StringType codingDisplay = null;
             if (coding.hasDisplay()) {
                 codingDisplay = coding.getDisplayElement();
@@ -1396,7 +1413,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 codingDisplay = display;
             }
             
-            // ¨Ï¥Î coding ¤¤ªº code
+            // ä½¿ç”¨ coding ä¸­çš„ code
             CodeType codingCode = null;
             if (coding.hasCode()) {
                 codingCode = coding.getCodeElement();
@@ -1420,7 +1437,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             for (int i = 0; i < codeableConcept.getCoding().size(); i++) {
                 Coding c = codeableConcept.getCoding().get(i);
                 
-                // Àu¥ý¨Ï¥Î¨C­Ó coding ¤¤ªºÄæ¦ì
+                // å„ªå…ˆä½¿ç”¨æ¯å€‹ coding ä¸­çš„æ¬„ä½
                 UriType codingSystem = null;
                 if (c.hasSystem()) {
                     codingSystem = c.getSystemElement();
@@ -1455,7 +1472,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
 
-        // ¥u¦³¦b¨S¦³ coding ©Î codeableConcept ®É¤~²K¥[°ò¥»ªº code °Ñ¼Æ
+        // åªæœ‰åœ¨æ²’æœ‰ coding æˆ– codeableConcept æ™‚æ‰æ·»åŠ åŸºæœ¬çš„ code åƒæ•¸
         if (code != null && (coding == null || !coding.hasCode()) && 
             (codeableConcept == null || codeableConcept.getCoding().isEmpty())) {
             paramsList.add(new ValidationParams(
@@ -1471,7 +1488,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return paramsList;
     }
     
-    // ÅçÃÒ°Ñ¼Æ¤èªk
+    // é©—è­‰åƒæ•¸æ–¹æ³•
     private void validateValidationParams(CodeType code, UriType system, IdType resourceId, 
                                         UriType url, UriType valueSetUrl) {
         if (code == null || code.isEmpty()) {
@@ -1482,7 +1499,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
-    // ®Ú¾Ú ID Àò¨ú ValueSet
+    // æ ¹æ“š ID ç²å– ValueSet
     private ValueSet getValueSetById(String id, StringType version) {
     	var searchParams = new SearchParameterMap();
         searchParams.add("_id", new TokenParam(id));
@@ -1500,7 +1517,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return (ValueSet) searchResult.getResources(0, 1).get(0);
     }
 
-    // ®Ú¾Ú URL ¬d§ä ValueSet
+    // æ ¹æ“š URL æŸ¥æ‰¾ ValueSet
     private ValueSet findValueSetByUrl(String url, String version) {
     	var searchParams = new SearchParameterMap();
         searchParams.add(ValueSet.SP_URL, new UriParam(url));
@@ -1520,7 +1537,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return (ValueSet) searchResult.getResources(0, 1).get(0);
     }
 
-    // ­×§ï findCodeSystemByUrl ¤èªk - §ïµ½ª©¥»·j´Mµ¦²¤
+    // ä¿®æ”¹ findCodeSystemByUrl æ–¹æ³• - æ”¹å–„ç‰ˆæœ¬æœå°‹ç­–ç•¥
     private CodeSystem findCodeSystemByUrl(String url, String version) {
         System.out.println("=== Debug findCodeSystemByUrl ===");
         System.out.println("systemUrl: " + url);
@@ -1529,7 +1546,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         var searchParams = new SearchParameterMap();
         searchParams.add(CodeSystem.SP_URL, new UriParam(url));
         
-        // ¦pªG«ü©w¤Fª©¥»¡A¥ý¹Á¸Õºë½T¤Ç°t
+        // å¦‚æžœæŒ‡å®šäº†ç‰ˆæœ¬ï¼Œå…ˆå˜—è©¦ç²¾ç¢ºåŒ¹é…
         if (StringUtils.isNotBlank(version)) {
             searchParams.add(CodeSystem.SP_VERSION, new TokenParam(version));
             
@@ -1542,10 +1559,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 return codeSystem;
             }
             
-            // ¦pªG§ä¤£¨ì«ü©wª©¥»¡A°O¿ý¿ù»~¨Ã©ß¥X²§±`
+            // å¦‚æžœæ‰¾ä¸åˆ°æŒ‡å®šç‰ˆæœ¬ï¼Œè¨˜éŒ„éŒ¯èª¤ä¸¦æ‹‹å‡ºç•°å¸¸
             System.out.println("Exact version not found, checking available versions...");
             
-            // ¬d¸ß©Ò¦³ª©¥»¥H´£¨Ñ§ó¦nªº¿ù»~«H®§
+            // æŸ¥è©¢æ‰€æœ‰ç‰ˆæœ¬ä»¥æä¾›æ›´å¥½çš„éŒ¯èª¤ä¿¡æ¯
             var allVersionsParams = new SearchParameterMap();
             allVersionsParams.add(CodeSystem.SP_URL, new UriParam(url));
             var allVersionsResult = myCodeSystemDao.search(allVersionsParams, new SystemRequestDetails());
@@ -1562,7 +1579,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 String.format("CodeSystem with URL '%s' and version '%s' not found", url, version));
         }
         
-        // ¦pªG¨S¦³«ü©wª©¥»¡Aªð¦^³Ì·sª©¥»¡]©Î¥ô·Nª©¥»¡^
+        // å¦‚æžœæ²’æœ‰æŒ‡å®šç‰ˆæœ¬ï¼Œè¿”å›žæœ€æ–°ç‰ˆæœ¬ï¼ˆæˆ–ä»»æ„ç‰ˆæœ¬ï¼‰
         var searchResult = myCodeSystemDao.search(searchParams, new SystemRequestDetails());
         
         if (searchResult.size() == 0) {
@@ -1577,7 +1594,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return codeSystem;
     }
 
-    // »¼Âk¬d§ä·§©À
+    // éžæ­¸æŸ¥æ‰¾æ¦‚å¿µ
     private ConceptDefinitionComponent findConceptRecursive(List<ConceptDefinitionComponent> concepts, 
                                                            String code) {
         
@@ -1600,7 +1617,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return null;
     }
 
-    // ¿ù»~Ãþ«¬ªTÁ|
+    // éŒ¯èª¤é¡žåž‹æžšèˆ‰
     private enum ValidationErrorType {
         INVALID_CODE,
         INVALID_DISPLAY,
@@ -1611,7 +1628,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         INTERNAL_ERROR
     }
 
-    // ValidationParams °O¿ý
+    // ValidationParams è¨˜éŒ„
     private record ValidationParams(
     	CodeType code,
     	UriType system,
@@ -1621,7 +1638,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     	CodeableConcept originalCodeableConcept
     ) {}
 
-    // ValueSet ÅçÃÒµ²ªG°O¿ýÃþ
+    // ValueSet é©—è­‰çµæžœè¨˜éŒ„é¡ž
     private record ValidationResult(
         boolean isValid,
         ConceptDefinitionComponent concept,
@@ -1630,7 +1647,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         ValidationErrorType errorType
     ) {}
 
-    // ºc«Ø ValueSet ¼h¯Åªº¿ù»~°T®§
+    // æ§‹å»º ValueSet å±¤ç´šçš„éŒ¯èª¤è¨Šæ¯
     private String buildValueSetErrorMessage(ValidationContext context) {
         if (context.valueSet() != null && context.valueSet().hasUrl() && context.code() != null) {
             String valueSetUrl = context.valueSet().getUrl();
