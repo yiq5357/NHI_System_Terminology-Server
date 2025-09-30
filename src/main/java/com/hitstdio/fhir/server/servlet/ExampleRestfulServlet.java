@@ -89,8 +89,9 @@ public final class ExampleRestfulServlet extends RestfulServer {
 		// 添加自定义拦截器来处理 /metadata?mode=terminology 请求
         registerInterceptor(new CapabilityStatementInterceptor(terminologyProvider));
 
-		INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
-		getFhirContext().setNarrativeGenerator(narrativeGen);
+		// 禁用 NarrativeGenerator 以避免自動生成 narrative text
+		// INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
+		// getFhirContext().setNarrativeGenerator(narrativeGen);
 
 		registerInterceptor(new ResponseHighlighterInterceptor());        
         
