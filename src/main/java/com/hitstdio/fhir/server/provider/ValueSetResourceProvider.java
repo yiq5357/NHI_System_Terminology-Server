@@ -1153,12 +1153,13 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
 
-    private boolean evaluateCustomPropertyFilter(String property, String op, String value, 
+    private boolean evaluateCustomPropertyFilter(String property, String op, String value,
                                                ConceptDefinitionComponent concept) {
+        String propertyValue = null;
+
+        // 查找屬性值
         for (ConceptPropertyComponent prop : concept.getProperty()) {
             if (property.equals(prop.getCode())) {
-                String propertyValue = null;
-                
                 if (prop.getValue() instanceof StringType) {
                     propertyValue = ((StringType) prop.getValue()).getValue();
                 } else if (prop.getValue() instanceof CodeType) {
@@ -1168,13 +1169,39 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 } else if (prop.getValue() instanceof BooleanType) {
                     propertyValue = String.valueOf(((BooleanType) prop.getValue()).getValue());
                 }
-                
-                if (propertyValue != null) {
-                    return evaluatePropertyValue(op, value, propertyValue);
-                }
+                break;
             }
         }
-        return false;
+
+        // 如果找到屬性值，進行評估
+        if (propertyValue != null) {
+            return evaluatePropertyValue(op, value, propertyValue);
+        }
+
+        // 屬性不存在的情況：根據操作符決定結果
+        return evaluatePropertyValueWhenAbsent(op, value);
+    }
+
+    // 當屬性不存在時，根據操作符決定結果
+    private boolean evaluatePropertyValueWhenAbsent(String op, String value) {
+        switch (op) {
+            case "=":
+            case "equals":
+            case "in":
+            case "regex":
+                // 肯定操作：屬性不存在視為不匹配
+                return false;
+            case "!=":
+            case "not-equals":
+            case "not-in":
+                // 否定操作：屬性不存在視為匹配（因為不存在的值當然不等於指定值）
+                return true;
+            case "exists":
+                // exists 操作：檢查 value 是否為 false
+                return "false".equals(value);
+            default:
+                return false;
+        }
     }
 
     private boolean evaluatePropertyValue(String op, String expectedValue, String actualValue) {
@@ -1187,11 +1214,30 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 return !actualValue.equals(expectedValue);
             case "regex":
                 return actualValue.matches(expectedValue);
+            case "in":
+                // 檢查 actualValue 是否在 expectedValue 的逗號分隔列表中
+                return isValueInList(actualValue, expectedValue);
+            case "not-in":
+                // 檢查 actualValue 是否不在 expectedValue 的逗號分隔列表中
+                return !isValueInList(actualValue, expectedValue);
             case "exists":
                 return actualValue != null;
             default:
                 return false;
         }
+    }
+
+    private boolean isValueInList(String value, String valueList) {
+        if (valueList == null || valueList.trim().isEmpty()) {
+            return false;
+        }
+        String[] values = valueList.split(",");
+        for (String v : values) {
+            if (value.equals(v.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isInConceptSet(String conceptCode, String valueList) {
