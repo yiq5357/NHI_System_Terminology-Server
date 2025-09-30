@@ -315,6 +315,7 @@ public class ConceptCollector {
 					conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/valueset-label", "label", conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/itemWeight", "weight", conceptDef);
+			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status", "status", conceptDef);
 		}
 	}
 

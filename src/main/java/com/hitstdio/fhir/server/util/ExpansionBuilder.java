@@ -316,6 +316,8 @@ public class ExpansionBuilder {
 			return java.util.Optional.of("label");
 		case "http://hl7.org/fhir/StructureDefinition/itemWeight":
 			return java.util.Optional.of("weight");
+		case "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status":
+			return java.util.Optional.of("status");
 		default:
 			return java.util.Optional.empty();
 		}
