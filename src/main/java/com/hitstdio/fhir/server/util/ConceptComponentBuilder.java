@@ -30,20 +30,20 @@ public class ConceptComponentBuilder {
             CodeSystem.ConceptDefinitionComponent conceptDef,
             ExpansionRequest request) {
     	preprocessConceptExtensions(conceptDef);
-    	
+
         ValueSetExpansionContainsComponent component = new ValueSetExpansionContainsComponent();
         component.setSystem(codeSystem.getUrl());
         component.setCode(conceptDef.getCode());
-        
-        CodeSystem.ConceptDefinitionComponent mergedConceptDef = 
+
+        CodeSystem.ConceptDefinitionComponent mergedConceptDef =
                 mergeWithSupplements(conceptDef, request);
-        
+
         processDisplay(component, mergedConceptDef, codeSystem, request);
         setConceptFlags(component, mergedConceptDef, codeSystem);
         if (shouldIncludeDesignations(request)) {
             addDesignations(component, mergedConceptDef, request);
         }
-        
+
         List<Extension> knownNonPropertyExtensions = mergedConceptDef.getExtension().stream()
                 .filter(ext -> isKnownNonPropertyExtension(ext.getUrl()))
                 .collect(Collectors.toList());
@@ -53,7 +53,7 @@ public class ConceptComponentBuilder {
         if (request.getProperty() != null && !request.getProperty().isEmpty()) {
             addProperties(component, mergedConceptDef, request.getProperty());
         }
-        
+
         return component;
     }
 
@@ -200,7 +200,7 @@ public class ConceptComponentBuilder {
 					demoted.setLanguage(defaultLanguage);
 					demoted.setValue(defaultDisplay);
 					demoted.setUse(
-							new Coding("http://terminology.hl7.org/CodeSystem/designation-usage", "display", null));
+							new Coding("http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra", "preferredForLanguage", null));
 					finalDesignations.add(demoted);
 				}
 			} else {
@@ -213,7 +213,7 @@ public class ConceptComponentBuilder {
 						demoted.setLanguage(defaultLanguage);
 						demoted.setValue(defaultDisplay);
 						demoted.setUse(
-								new Coding("http://terminology.hl7.org/CodeSystem/designation-usage", "display", null));
+								new Coding("http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra", "preferredForLanguage", null));
 						finalDesignations.add(demoted);
 					}
 				}
