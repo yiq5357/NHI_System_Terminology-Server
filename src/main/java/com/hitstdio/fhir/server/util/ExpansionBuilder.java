@@ -167,7 +167,7 @@ public class ExpansionBuilder {
 	 * Extracts display language from ValueSet compose extensions
 	 */
 	private String extractDisplayLanguageFromCompose(ValueSet sourceValueSet) {
-		final String VS_EXP_PARAM_URL = "http://hl7.org/fhir/tools/StructureDefinition/valueset-expansion-parameter";
+		final String VS_EXP_PARAM_URL = "http://hl7.org/fhir/StructureDefinition/valueset-expansion-parameter";
 
 		for (Extension composeExtension : sourceValueSet.getCompose().getExtension()) {
 			if (VS_EXP_PARAM_URL.equals(composeExtension.getUrl())) {
