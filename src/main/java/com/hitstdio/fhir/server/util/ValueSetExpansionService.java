@@ -293,6 +293,7 @@ public class ValueSetExpansionService {
 		final String SUPPLEMENT_URL = "http://hl7.org/fhir/StructureDefinition/valueset-supplement";
 		Map<String, CodeSystem> supplements = new HashMap<>();
 
+		// First, process supplements explicitly declared in ValueSet extensions
 		for (Extension ext : sourceValueSet.getExtension()) {
 			if (SUPPLEMENT_URL.equals(ext.getUrl()) && ext.getValue() instanceof CanonicalType) {
 				CanonicalType supplementCanonical = (CanonicalType) ext.getValue();
@@ -304,14 +305,35 @@ public class ValueSetExpansionService {
 					CodeSystem supplementCs = resourceFinder.findCodeSystem(url, version, request);
 
 					if (supplementCs != null) {
-						expansion.addParameter().setName("used-supplement").setValue(supplementCanonical.copy());
-						// 移除 version 參數
-						// expansion.addParameter().setName("version").setValue(supplementCanonical.copy());
-
 						supplements.put(url, supplementCs);
 					}
 				}
 			}
+		}
+
+		// Second, auto-discover supplements for each included CodeSystem
+		if (sourceValueSet.hasCompose()) {
+			for (ConceptSetComponent include : sourceValueSet.getCompose().getInclude()) {
+				if (include.hasSystem()) {
+					String systemUrl = include.getSystem();
+					// Find all CodeSystems that supplement this system
+					List<CodeSystem> autoDiscoveredSupplements = resourceFinder.findSupplementsForSystem(systemUrl, request);
+					for (CodeSystem supplementCs : autoDiscoveredSupplements) {
+						if (!supplements.containsKey(supplementCs.getUrl())) {
+							supplements.put(supplementCs.getUrl(), supplementCs);
+						}
+					}
+				}
+			}
+		}
+
+		// Record all used supplements in expansion parameters
+		for (CodeSystem supplementCs : supplements.values()) {
+			String canonicalUrl = supplementCs.getUrl();
+			if (supplementCs.hasVersion()) {
+				canonicalUrl += "|" + supplementCs.getVersion();
+			}
+			expansion.addParameter().setName("used-supplement").setValue(new UriType(canonicalUrl));
 		}
 
 		request.setSupplements(supplements);

@@ -127,34 +127,80 @@ public class ResourceFinder {
                 return (CodeSystem) resource;
             }
         }
-        
+
         SearchParameterMap searchParams = new SearchParameterMap();
         searchParams.add(PARAM_URL, new UriParam(system));
-        
+
         if (version != null && !version.trim().isEmpty()) {
             searchParams.add(PARAM_VERSION, new TokenParam(version));
         }
-        
+
         IBundleProvider results = codeSystemDao.search(searchParams, request.getRequestDetails());
-        
+
         if (results.isEmpty()) {
-            String diagnosticMessage = "Supplement CodeSystem not found for URL: " + system + 
+            String diagnosticMessage = "Supplement CodeSystem not found for URL: " + system +
                 (version != null ? " and version: " + version : "");
 
             OperationOutcome oo = new OperationOutcome();
             OperationOutcome.OperationOutcomeIssueComponent issue = oo.addIssue();
             issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-            issue.setCode(OperationOutcome.IssueType.NOTFOUND); 
-            
+            issue.setCode(OperationOutcome.IssueType.NOTFOUND);
+
             CodeableConcept details = new CodeableConcept();
-            details.setText("Unable to find supplement for canonical URL '" + system + 
+            details.setText("Unable to find supplement for canonical URL '" + system +
                             (version != null ? "|" + version : "") + "'");
             issue.setDetails(details);
-            
+
             throw new ResourceNotFoundException(diagnosticMessage, oo);
         }
-        
+
         return (CodeSystem) results.getResources(0, 1).get(0);
+    }
+
+    /**
+     * Finds all CodeSystems that supplement the given system URL
+     */
+    public java.util.List<CodeSystem> findSupplementsForSystem(String systemUrl, ExpansionRequest request) {
+        java.util.List<CodeSystem> supplements = new java.util.ArrayList<>();
+
+        // First check tx-resources for supplements
+        Map<String, Resource> txResources = request.getTxResources();
+        for (Resource resource : txResources.values()) {
+            if (resource instanceof CodeSystem) {
+                CodeSystem cs = (CodeSystem) resource;
+                if (cs.hasSupplements() && systemUrl.equals(cs.getSupplements())) {
+                    supplements.add(cs);
+                }
+            }
+        }
+
+        // Then search the database for supplements
+        SearchParameterMap searchParams = new SearchParameterMap();
+        searchParams.add("supplements", new UriParam(systemUrl));
+
+        try {
+            IBundleProvider results = codeSystemDao.search(searchParams, request.getRequestDetails());
+            if (!results.isEmpty()) {
+                java.util.List<org.hl7.fhir.instance.model.api.IBaseResource> resources = results.getAllResources();
+                for (org.hl7.fhir.instance.model.api.IBaseResource baseResource : resources) {
+                    if (baseResource instanceof CodeSystem) {
+                        CodeSystem cs = (CodeSystem) baseResource;
+                        // Avoid duplicates from tx-resources
+                        boolean alreadyIncluded = supplements.stream()
+                            .anyMatch(existing -> existing.getUrl().equals(cs.getUrl()) &&
+                                     java.util.Objects.equals(existing.getVersion(), cs.getVersion()));
+                        if (!alreadyIncluded) {
+                            supplements.add(cs);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // If search fails (e.g., supplements search parameter not supported),
+            // just return what we found in tx-resources
+        }
+
+        return supplements;
     }
     
     /**
