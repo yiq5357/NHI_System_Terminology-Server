@@ -16,6 +16,7 @@ public class ConceptComponentBuilder {
 
 	private final ConceptFilter conceptFilter;
 	private final LanguageProcessor languageProcessor;
+	private final ThreadLocal<Set<String>> propertiesFromExtensions = ThreadLocal.withInitial(HashSet::new);
 
 	public ConceptComponentBuilder(ConceptFilter conceptFilter) {
 		this.conceptFilter = conceptFilter;
@@ -29,6 +30,7 @@ public class ConceptComponentBuilder {
             CodeSystem codeSystem,
             CodeSystem.ConceptDefinitionComponent conceptDef,
             ExpansionRequest request) {
+    	propertiesFromExtensions.get().clear();
     	preprocessConceptExtensions(conceptDef);
 
         ValueSetExpansionContainsComponent component = new ValueSetExpansionContainsComponent();
@@ -54,6 +56,7 @@ public class ConceptComponentBuilder {
             addProperties(component, mergedConceptDef, request.getProperty());
         }
 
+        propertiesFromExtensions.get().clear();
         return component;
     }
 
@@ -62,7 +65,7 @@ public class ConceptComponentBuilder {
         if (!conceptDef.hasExtension()) {
             return;
         }
-        
+
         for (Extension ext : new ArrayList<>(conceptDef.getExtension())) {
             getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(propertyCode -> {
                 if (ext.hasValue()) {
@@ -70,6 +73,8 @@ public class ConceptComponentBuilder {
                     conceptDef.addProperty()
                         .setCode(propertyCode)
                         .setValue(ext.getValue());
+                    // Track that this property came from an extension
+                    propertiesFromExtensions.get().add(propertyCode);
                 }
             });
         }
@@ -237,7 +242,10 @@ public class ConceptComponentBuilder {
 		if (isAbstract) {
 			component.setAbstract(isAbstract);
 		}
-		if (isInactive) {
+
+		// Only set inactive attribute if the concept is inactive AND the status property
+		// did NOT come from an extension (structuredefinition-standards-status)
+		if (isInactive && !propertiesFromExtensions.get().contains("status")) {
 			component.setInactive(isInactive);
 		}
 	}
