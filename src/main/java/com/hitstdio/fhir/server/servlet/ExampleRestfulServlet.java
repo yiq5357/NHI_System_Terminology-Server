@@ -12,6 +12,8 @@ import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Import;
 
+//import com.hitstdio.fhir.server.interceptor.KafkaLoggingInterceptor;
+import com.hitstdio.fhir.server.interceptor.ValidateCodeNarrativeSuppressionInterceptor;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.r4.TestServerR4AppCtx;
 
@@ -36,9 +38,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 
-/**
- * This servlet is the actual FHIR server itself
- */
 @Import({
 	JpaBatch2Config.class,
 	Batch2JobsConfig.class
@@ -46,18 +45,11 @@ import jakarta.servlet.http.HttpServletResponse;
 public final class ExampleRestfulServlet extends RestfulServer {	
 	private static final long serialVersionUID = 1L;
 	public static ValidationSupportChain validationSupportChain;
-	/**
-	 * Constructor
-	 */
 	
 	public ExampleRestfulServlet() {
-		super(FhirContext.forR4Cached()); // This is an R4 server
+		super(FhirContext.forR4Cached()); 
 	}
 	
-	/**
-	 * This method is called automatically when the
-	 * servlet is initializing.
-	 */
 	@Override
 	public void initialize() {
 		FhirContext ctx = getFhirContext();		
@@ -67,7 +59,6 @@ public final class ExampleRestfulServlet extends RestfulServer {
                 new InMemoryTerminologyServerValidationSupport(ctx),
                 new CommonCodeSystemsTerminologyService(ctx),
                 new SnapshotGeneratingValidationSupport(ctx)
-                //new RemoteTerminologyServiceValidationSupport(ctx, "http://localhost/r4/")
         );
         Class<?> configClass = TestServerR4AppCtx.class;
         AnnotationConfigApplicationContext appCtx = new AnnotationConfigApplicationContext(configClass);
@@ -79,31 +70,23 @@ public final class ExampleRestfulServlet extends RestfulServer {
 	    registerInterceptor(interceptor);
 		
 		
-		// 注册 TerminologyCapabilitiesResourceProvider
         TerminologyCapabilitiesResourceProvider terminologyProvider = new TerminologyCapabilitiesResourceProvider(appCtx.getBean(DaoRegistry.class));
         providers.add(terminologyProvider);
 		
 		setResourceProviders(providers);
 		setDefaultResponseEncoding(EncodingEnum.JSON);		
 		
-		// 添加自定义拦截器来处理 /metadata?mode=terminology 请求
         registerInterceptor(new CapabilityStatementInterceptor(terminologyProvider));
 
 		INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
 		getFhirContext().setNarrativeGenerator(narrativeGen);
 
-		registerInterceptor(new ResponseHighlighterInterceptor());        
-        
-		//setServerConformanceProvider(new TerminologyCapabilitiesResourceProvider(getFhirContext(), this, theDaoRegistry));
+		registerInterceptor(new ResponseHighlighterInterceptor());
 		
-		//setServerConformanceProvider(new CapabilityStatementResourceProvider(getFhirContext(), this, mySystemDao));
+		registerInterceptor(new ValidateCodeNarrativeSuppressionInterceptor());  
 		
-		/*StaticCapabilityStatementInterceptor staticCapabilityStatementInterceptor = new StaticCapabilityStatementInterceptor();
-		staticCapabilityStatementInterceptor.setCapabilityStatementResource("classpath:capabilitystatement.json");
-	    registerInterceptor(staticCapabilityStatementInterceptor);*/
-	  
-		/*OpenApiInterceptor openApiInterceptor = new OpenApiInterceptor();
-	    registerInterceptor(openApiInterceptor);*/
+		/*KafkaLoggingInterceptor kafkaInterceptor = new KafkaLoggingInterceptor();
+		registerInterceptor(kafkaInterceptor);*/
 	    
 		LoggingInterceptor loggingInterceptor = new LoggingInterceptor();
 		loggingInterceptor.setLoggerName("fhir.access");
@@ -119,7 +102,8 @@ public final class ExampleRestfulServlet extends RestfulServer {
 		);
 		registerInterceptor(loggingInterceptor);
 	}
-	 // 创建自定义拦截器来处理 /metadata 请求
+	
+
     private class CapabilityStatementInterceptor extends InterceptorAdapter {
         private final TerminologyCapabilitiesResourceProvider terminologyProvider;
         
@@ -139,7 +123,7 @@ public final class ExampleRestfulServlet extends RestfulServer {
             
             if ("metadata".equals(requestPath) && modeValue != null && "terminology".equals(modeValue)) {
                 try {
-                    // 调用 TerminologyCapabilitiesResourceProvider 的方法获取 TerminologyCapabilities
+
                     TerminologyCapabilities terminologyCapabilities = terminologyProvider.getTerminologyCapabilities("terminology", theRequestDetails);
                     
                     if (terminologyCapabilities != null) {
@@ -163,16 +147,14 @@ public final class ExampleRestfulServlet extends RestfulServer {
                         theResponse.getWriter().write(responseContent);
                         theResponse.getWriter().close();
                         
-                        // 返回 true 表示请求已处理，无需进一步处理
+
                         return false;
                     }
                 } catch (Exception e) {
-                    // 处理异常
-                    //ourLog.error("Error handling terminology capabilities request", e);
+
                 }
             }
-            
-            // 返回 true 表示继续处理请求
+
             return true;
         }
     }
