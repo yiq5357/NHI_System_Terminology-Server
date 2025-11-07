@@ -78,8 +78,9 @@ public final class ExampleRestfulServlet extends RestfulServer {
 		
         registerInterceptor(new CapabilityStatementInterceptor(terminologyProvider));
 
-		INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
-		getFhirContext().setNarrativeGenerator(narrativeGen);
+		// 禁用 NarrativeGenerator 以避免自動生成 narrative text
+		// INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
+		// getFhirContext().setNarrativeGenerator(narrativeGen);
 
 		registerInterceptor(new ResponseHighlighterInterceptor());
 		
