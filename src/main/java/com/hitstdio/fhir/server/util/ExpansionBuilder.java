@@ -39,8 +39,14 @@ public class ExpansionBuilder {
 		// Add expansion parameters
 		addExpansionParameters(expansion, sourceValueSet, request);
 
+		// Reorder parameters according to FHIR specification
+		reorderExpansionParameters(expansion);
+
 		// Add property declarations if needed
 		addPropertyDeclarations(expansion, sourceValueSet, request);
+
+		// Auto-declare properties used in contains
+		autoDeclarePropertiesFromContains(expansion, pagedConcepts);
 
 		// Set total count
 		expansion.setTotal(allConcepts.size());
@@ -350,6 +356,147 @@ public class ExpansionBuilder {
 		expansionPropertyExt.addExtension().setUrl("code").setValue(new CodeType(code));
 
 		expansionPropertyExt.addExtension().setUrl("uri").setValue(new UriType(uri));
+	}
+
+	/**
+	 * Reorders expansion parameters according to FHIR specification:
+	 * 1. Request parameter echoes (in original request order)
+	 * 2. Server-generated parameters (used-codesystem, used-supplement, etc.)
+	 */
+	private void reorderExpansionParameters(ValueSetExpansionComponent expansion) {
+		if (expansion.getParameter().isEmpty()) {
+			return;
+		}
+
+		// Define the order of request parameters
+		List<String> requestParamOrder = List.of(
+			"excludeNested", "includeDesignations", "includeDefinition",
+			"activeOnly", "displayLanguage", "exclude-system",
+			"system-version", "check-system-version", "force-system-version",
+			"count", "offset", "property", "designation", "filter", "date", "url"
+		);
+
+		// Define the order of server-generated parameters
+		List<String> serverParamOrder = List.of(
+			"used-codesystem", "used-supplement", "version",
+			"warning-draft", "warning-experimental", "warning-withdrawn"
+		);
+
+		// Separate parameters into categories
+		List<ValueSet.ValueSetExpansionParameterComponent> requestParams = new java.util.ArrayList<>();
+		List<ValueSet.ValueSetExpansionParameterComponent> serverParams = new java.util.ArrayList<>();
+		List<ValueSet.ValueSetExpansionParameterComponent> otherParams = new java.util.ArrayList<>();
+
+		for (ValueSet.ValueSetExpansionParameterComponent param : expansion.getParameter()) {
+			String name = param.getName();
+			if (requestParamOrder.contains(name)) {
+				requestParams.add(param);
+			} else if (serverParamOrder.contains(name)) {
+				serverParams.add(param);
+			} else {
+				otherParams.add(param);
+			}
+		}
+
+		// Sort request parameters by defined order
+		requestParams.sort((a, b) -> {
+			int indexA = requestParamOrder.indexOf(a.getName());
+			int indexB = requestParamOrder.indexOf(b.getName());
+			return Integer.compare(indexA, indexB);
+		});
+
+		// Sort server parameters by defined order
+		serverParams.sort((a, b) -> {
+			int indexA = serverParamOrder.indexOf(a.getName());
+			int indexB = serverParamOrder.indexOf(b.getName());
+			return Integer.compare(indexA, indexB);
+		});
+
+		// Clear and rebuild the parameter list in correct order
+		expansion.getParameter().clear();
+		expansion.getParameter().addAll(requestParams);
+		expansion.getParameter().addAll(serverParams);
+		expansion.getParameter().addAll(otherParams);
+	}
+
+	/**
+	 * Automatically declares properties that are used in the expansion contains
+	 * but haven't been explicitly declared yet.
+	 */
+	private void autoDeclarePropertiesFromContains(ValueSetExpansionComponent expansion,
+			List<ValueSetExpansionContainsComponent> contains) {
+
+		// Collect all property codes used in contains
+		Set<String> usedPropertyCodes = new HashSet<>();
+		collectPropertyCodesFromContains(contains, usedPropertyCodes);
+
+		if (usedPropertyCodes.isEmpty()) {
+			return;
+		}
+
+		// Get already declared property codes from extensions
+		Set<String> declaredPropertyCodes = new HashSet<>();
+		for (Extension ext : expansion.getExtension()) {
+			if (EXT_EXPANSION_PROPERTY.equals(ext.getUrl())) {
+				for (Extension subExt : ext.getExtension()) {
+					if ("code".equals(subExt.getUrl()) && subExt.getValue() instanceof CodeType) {
+						declaredPropertyCodes.add(((CodeType) subExt.getValue()).getCode());
+					}
+				}
+			}
+		}
+
+		// Declare any missing properties
+		for (String propertyCode : usedPropertyCodes) {
+			if (!declaredPropertyCodes.contains(propertyCode)) {
+				String uri = getStandardPropertyUri(propertyCode);
+				addPropertyDeclaration(expansion, propertyCode, uri);
+			}
+		}
+	}
+
+	/**
+	 * Recursively collects all property codes from contains and nested contains
+	 */
+	private void collectPropertyCodesFromContains(List<ValueSetExpansionContainsComponent> contains,
+			Set<String> propertyCodeSet) {
+		for (ValueSetExpansionContainsComponent containsComponent : contains) {
+			// Collect property codes from this concept
+			List<Extension> propertyExts = containsComponent.getExtensionsByUrl(
+				"http://hl7.org/fhir/5.0/StructureDefinition/extension-ValueSet.expansion.contains.property");
+
+			for (Extension propertyExt : propertyExts) {
+				for (Extension subExt : propertyExt.getExtension()) {
+					if ("code".equals(subExt.getUrl()) && subExt.getValue() instanceof CodeType) {
+						propertyCodeSet.add(((CodeType) subExt.getValue()).getCode());
+					}
+				}
+			}
+
+			// Recursively collect from nested contains
+			if (containsComponent.hasContains()) {
+				collectPropertyCodesFromContains(containsComponent.getContains(), propertyCodeSet);
+			}
+		}
+	}
+
+	/**
+	 * Returns the standard URI for common FHIR concept properties
+	 */
+	private String getStandardPropertyUri(String propertyCode) {
+		Map<String, String> standardUris = Map.of(
+			"status", "http://hl7.org/fhir/concept-properties#status",
+			"inactive", "http://hl7.org/fhir/concept-properties#inactive",
+			"definition", "http://hl7.org/fhir/concept-properties#definition",
+			"label", "http://hl7.org/fhir/concept-properties#label",
+			"order", "http://hl7.org/fhir/concept-properties#order",
+			"weight", "http://hl7.org/fhir/concept-properties#itemWeight",
+			"parent", "http://hl7.org/fhir/concept-properties#parent",
+			"child", "http://hl7.org/fhir/concept-properties#child"
+		);
+
+		return standardUris.getOrDefault(propertyCode,
+			"http://hl7.org/fhir/concept-properties#" + propertyCode);
 	}
 
 	/**
