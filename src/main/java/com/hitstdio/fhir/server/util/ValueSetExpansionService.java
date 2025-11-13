@@ -166,6 +166,16 @@ public class ValueSetExpansionService {
 			String url = request.getUrl().getValue();
 			String version = request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null;
 
+			// Parse version from canonical URL if present (format: url|version)
+			if (url.contains("|")) {
+				String[] parts = url.split("\\|", 2);
+				url = parts[0];
+				// Only use the version from URL if no explicit valueSetVersion parameter was provided
+				if (version == null && parts.length > 1) {
+					version = parts[1];
+				}
+			}
+
 			if (version != null) {
 				String versionedKey = url + "|" + version;
 				if (txResources.containsKey(versionedKey)) {
@@ -187,9 +197,20 @@ public class ValueSetExpansionService {
 					"Either a resource ID or the 'url' parameter must be provided for the $expand operation.");
 		}
 
-		return resourceFinder.findValueSetByUrl(request.getUrl().getValue(),
-				request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null,
-				request.getRequestDetails());
+		String url = request.getUrl().getValue();
+		String version = request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null;
+
+		// Parse version from canonical URL if present (format: url|version)
+		if (url.contains("|")) {
+			String[] parts = url.split("\\|", 2);
+			url = parts[0];
+			// Only use the version from URL if no explicit valueSetVersion parameter was provided
+			if (version == null && parts.length > 1) {
+				version = parts[1];
+			}
+		}
+
+		return resourceFinder.findValueSetByUrl(url, version, request.getRequestDetails());
 	}
 
 	/**
