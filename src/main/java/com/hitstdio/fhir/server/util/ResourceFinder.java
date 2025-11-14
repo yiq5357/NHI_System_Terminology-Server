@@ -142,16 +142,56 @@ public class ResourceFinder {
             IBundleProvider results = codeSystemDao.search(searchParams, request.getRequestDetails());
 
             if (results.isEmpty()) {
-                String diagnosticMessage = "CodeSystem not found for URL: " + system +
-                    " and version: " + version;
+                // Query all available versions to provide helpful error message
+                SearchParameterMap allVersionsParams = new SearchParameterMap();
+                allVersionsParams.add(PARAM_URL, new UriParam(system));
+                IBundleProvider allResults = codeSystemDao.search(allVersionsParams, request.getRequestDetails());
+
+                // Collect all available versions
+                java.util.List<String> availableVersions = new java.util.ArrayList<>();
+                if (!allResults.isEmpty()) {
+                    for (org.hl7.fhir.instance.model.api.IBaseResource res : allResults.getAllResources()) {
+                        if (res instanceof CodeSystem) {
+                            CodeSystem cs = (CodeSystem) res;
+                            if (cs.hasVersion()) {
+                                availableVersions.add(cs.getVersion());
+                            }
+                        }
+                    }
+                }
+
+                // Sort versions from smallest to largest using semantic versioning
+                if (!availableVersions.isEmpty()) {
+                    availableVersions.sort((v1, v2) -> compareVersions(v1, v2));
+                }
+
+                // Build detailed error message
+                String diagnosticMessage = "A definition for CodeSystem '" + system +
+                    "' version '" + version + "' could not be found, so the value set cannot be expanded.";
+
+                if (!availableVersions.isEmpty()) {
+                    String validVersions = String.join(",", availableVersions);
+                    diagnosticMessage += " Valid versions: " + validVersions;
+                }
 
                 OperationOutcome oo = new OperationOutcome();
                 OperationOutcome.OperationOutcomeIssueComponent issue = oo.addIssue();
+
+                // Add operationoutcome-message-id extension
+                Extension msgIdExt = new Extension();
+                msgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                msgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION_EXP"));
+                issue.addExtension(msgIdExt);
+
                 issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
                 issue.setCode(OperationOutcome.IssueType.NOTFOUND);
 
+                // Add tx-issue-type coding
                 CodeableConcept details = new CodeableConcept();
-                details.setText("Unable to find CodeSystem for canonical URL '" + system + "|" + version + "'");
+                details.addCoding()
+                    .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                    .setCode("not-found");
+                details.setText(diagnosticMessage);
                 issue.setDetails(details);
 
                 throw new ResourceNotFoundException(diagnosticMessage, oo);
