@@ -603,7 +603,8 @@ public class ConceptCollector {
 	private void addSystemParameters(ValueSetExpansionComponent expansion, CodeSystem codeSystem, String systemUrl,
 			String version) {
 
-		String finalVersion = (version != null) ? version : codeSystem.getVersion();
+		// Prefer the actual CodeSystem version over the requested version (which might be a wildcard like "1.x.x")
+		String finalVersion = codeSystem.hasVersion() ? codeSystem.getVersion() : version;
 
 		UriType parameterValue;
 		if (finalVersion != null && !finalVersion.trim().isEmpty()) {
