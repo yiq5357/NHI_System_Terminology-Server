@@ -15,6 +15,7 @@ public class OperationOutcomeMessageId {
     public static final String TERMINOLOGY_TX_SYSTEM_VALUESET2 = "Terminology_TX_System_ValueSet2";
     public static final String TERMINOLOGY_TX_SYSTEM_RELATIVE = "Terminology_TX_System_Relative";
     public static final String CODING_HAS_NO_SYSTEM_CANNOT_VALIDATE = "Coding_has_no_system__cannot_validate";
+    public static final String UNABLE_TO_INFER_CODESYSTEM = "UNABLE_TO_INFER_CODESYSTEM";
     
     // 其他驗證錯誤
     public static final String ABSTRACT_CODE_NOT_ALLOWED = "Abstract_Code_Not_Allowed";
@@ -22,6 +23,7 @@ public class OperationOutcomeMessageId {
     public static final String STATUS_CODE_WARNING = "STATUS_CODE_WARNING_CODE";
     public static final String MISSING_REQUIRED_PARAMETER = "Missing_Required_Parameter";
     public static final String THIS_CODE_NOT_IN_VS = "this-code-not-in-vs";
+    public static final String INACTIVE_CONCEPT_FOUND = "INACTIVE_CONCEPT_FOUND";
     
     // 常用的 URL 常量
     public static final String TX_ISSUE_TYPE_SYSTEM = "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type";

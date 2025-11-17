@@ -12,5 +12,4 @@ public record ValidationContext (
     StringType systemVersion,
     Boolean isInactive,
     CodeableConcept originalCodeableConcept
-    //boolean systemIsValueSet
 ) {}
