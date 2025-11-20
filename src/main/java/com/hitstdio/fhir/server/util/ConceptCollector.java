@@ -83,6 +83,11 @@ public class ConceptCollector {
 		  for (ConceptSetComponent include : includes) {
 		      if (include.hasSystem()) {
 		          String systemUrl = include.getSystem();
+
+		          if (include.hasVersion()) {
+		              request.recordRequestedCodeSystemVersion(systemUrl, include.getVersion());
+		          }
+
 		          String version = determineSystemVersion(systemUrl, include.getVersion(),
 		                  systemVersionMap, checkSystemVersionMap, forceSystemVersionMap);
 
@@ -660,7 +665,17 @@ public class ConceptCollector {
 	}
 
 	private boolean hasParameter(ValueSetExpansionComponent expansion, String name, Type value) {
-		return expansion.getParameter().stream().anyMatch(p -> name.equals(p.getName()) && value.equals(p.getValue()));
+		return expansion.getParameter().stream().anyMatch(p -> {
+			if (!name.equals(p.getName())) {
+				return false;
+			}
+			if (value instanceof UriType && p.getValue() instanceof UriType) {
+				String val1 = ((UriType) value).getValue();
+				String val2 = ((UriType) p.getValue()).getValue();
+				return val1 != null && val1.equals(val2);
+			}
+			return value.equalsDeep(p.getValue());
+		});
 	}
 
 	private void addWarningParameter(ValueSetExpansionComponent expansion, String warningType, Type value) {
