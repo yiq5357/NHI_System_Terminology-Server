@@ -80,7 +80,23 @@ public class ConceptCollector {
 
 		List<ConceptSetComponent> includes = sourceValueSet.getCompose().getInclude();
 
-		for (int i = 0; i < includes.size(); i++) {
+		  for (ConceptSetComponent include : includes) {
+		      if (include.hasSystem()) {
+		          String systemUrl = include.getSystem();
+		          String version = determineSystemVersion(systemUrl, include.getVersion(),
+		                  systemVersionMap, checkSystemVersionMap, forceSystemVersionMap);
+
+		          try {
+		              CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
+		              if (codeSystem != null && codeSystem.hasVersion()) {
+		                  request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+		              }
+		          } catch (Exception e) {
+		          }
+		      }
+		  }
+
+		  for (int i = 0; i < includes.size(); i++) {
 			ConceptSetComponent include = includes.get(i);
 			validateFilters(include, i, sourceValueSet);
 
@@ -289,7 +305,9 @@ public class ConceptCollector {
 						&& conceptFilter.shouldIncludeConcept(sourceValueSet, mergedConceptDef,
 								conceptRef.hasDisplay() ? conceptRef.getDisplay() : mergedConceptDef.getDisplay(),
 								request)) {
-
+					  if (codeSystem.hasVersion()) {
+					      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+					  }
 					allCodes.add(componentBuilder.createExpansionComponent(codeSystem, mergedConceptDef, request));
 				}
 			}
@@ -407,6 +425,9 @@ public class ConceptCollector {
 
 		ValueSetExpansionContainsComponent currentComponent = null;
 		if (isIncluded) {
+			  if (codeSystem.hasVersion()) {
+			      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+			  }
 			currentComponent = componentBuilder.createExpansionComponent(codeSystem, conceptDef, request);
 			parentContainsList.add(currentComponent);
 		}
@@ -441,6 +462,9 @@ public class ConceptCollector {
 
 		while (currentConcept != null) {
 			if (conceptFilter.matchesAllFilters(currentConcept, propertyFilters, codeSystem)) {
+				  if (codeSystem.hasVersion()) {
+				      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+				  }
 				concepts.add(componentBuilder.createExpansionComponent(codeSystem, currentConcept, request));
 			}
 			currentConcept = parentMap.get(currentConcept);

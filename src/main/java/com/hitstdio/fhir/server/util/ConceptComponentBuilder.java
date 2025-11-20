@@ -36,6 +36,10 @@ public class ConceptComponentBuilder {
         ValueSetExpansionContainsComponent component = new ValueSetExpansionContainsComponent();
         component.setSystem(codeSystem.getUrl());
         component.setCode(conceptDef.getCode());
+        
+        if (codeSystem.hasVersion() && request.shouldIncludeVersion(codeSystem.getUrl())) {
+            component.setVersion(codeSystem.getVersion());
+        }
 
         CodeSystem.ConceptDefinitionComponent mergedConceptDef =
                 mergeWithSupplements(conceptDef, request);

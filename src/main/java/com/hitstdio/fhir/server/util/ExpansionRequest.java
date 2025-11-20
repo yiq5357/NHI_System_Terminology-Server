@@ -41,6 +41,7 @@ public class ExpansionRequest {
     private Map<String, String> defaultValueSetVersions;
     private Map<String, CodeSystem> supplements;
     private Map<String, Resource> txResourceMap;
+    private Map<String, List<String>> usedCodeSystemVersions;
     
     private ExpansionRequest(Builder builder) {
         this.id = builder.id;
@@ -176,6 +177,24 @@ public class ExpansionRequest {
     
     public void setSupplements(Map<String, CodeSystem> supplements) {
         this.supplements = supplements;
+    }
+    
+    public void recordUsedCodeSystem(String systemUrl, String version) {
+        if (usedCodeSystemVersions == null) {
+            usedCodeSystemVersions = new HashMap<>();
+        }
+        List<String> versions = usedCodeSystemVersions.computeIfAbsent(systemUrl, k -> new ArrayList<>());
+        if (!versions.contains(version)) {
+            versions.add(version);
+        }
+    }
+
+    public boolean shouldIncludeVersion(String systemUrl) {
+        if (usedCodeSystemVersions == null) {
+            return false;
+        }
+        List<String> versions = usedCodeSystemVersions.get(systemUrl);
+        return versions != null && versions.size() > 1;
     }
     
     // Builder
