@@ -214,7 +214,17 @@ public class ExpansionRequest {
         List<String> versions = usedCodeSystemVersions.get(systemUrl);
         return versions != null && versions.size() > 1;
     }
-    
+
+    /**
+     * 獲取某個 CodeSystem 實際使用的版本列表
+     */
+    public List<String> getUsedCodeSystemVersions(String systemUrl) {
+        if (usedCodeSystemVersions == null) {
+            return null;
+        }
+        return usedCodeSystemVersions.get(systemUrl);
+    }
+
     // Builder
     public static Builder builder() {
         return new Builder();

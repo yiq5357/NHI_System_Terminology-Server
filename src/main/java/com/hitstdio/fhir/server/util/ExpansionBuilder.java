@@ -206,7 +206,7 @@ public class ExpansionBuilder {
 		// Add system-version parameters
 		if (request.getSystemVersion() != null) {
 			for (UriType sv : request.getSystemVersion()) {
-				if (sv != null && !sv.isEmpty()) {
+				if (sv != null && !sv.isEmpty() && isVersionParameterUsed(sv, request)) {
 					expansion.addParameter().setName("system-version").setValue(sv);
 				}
 			}
@@ -229,6 +229,25 @@ public class ExpansionBuilder {
 				}
 			}
 		}
+	}
+
+
+	private boolean isVersionParameterUsed(UriType systemVersion, ExpansionRequest request) {
+		String value = systemVersion.getValue();
+		if (value == null || value.trim().isEmpty()) {
+			return false;
+		}
+
+		String[] parts = value.split("\\|", 2);
+		if (parts.length != 2) {
+			return false;
+		}
+
+		String systemUrl = parts[0];
+		String requestedVersion = parts[1];
+
+		java.util.List<String> usedVersions = request.getUsedCodeSystemVersions(systemUrl);
+		return usedVersions != null && usedVersions.contains(requestedVersion);
 	}
 
 	/**
