@@ -212,14 +212,7 @@ public class ExpansionBuilder {
 			}
 		}
 
-		// Add check-system-version parameters
-		if (request.getCheckSystemVersion() != null) {
-			for (UriType csv : request.getCheckSystemVersion()) {
-				if (csv != null && !csv.isEmpty()) {
-					expansion.addParameter().setName("check-system-version").setValue(csv);
-				}
-			}
-		}
+		// check-system-version is a validation-only parameter and should NOT be echoed
 
 		// Add force-system-version parameters
 		if (request.getForceSystemVersion() != null) {
