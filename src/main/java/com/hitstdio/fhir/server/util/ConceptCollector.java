@@ -138,17 +138,17 @@ public class ConceptCollector {
 		CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
 
 		if (codeSystem != null) {
-			// Validate check-system-version if specified (unless forced)
-			if (checkSystemVersionMap.containsKey(systemUrl)) {
-				String versionSource = request.getVersionSource(systemUrl);
-				// Only validate if not forced
-				if (!"force-system-version".equals(versionSource)) {
-					String requiredVersionPattern = checkSystemVersionMap.get(systemUrl);
-					String actualVersion = codeSystem.getVersion();
+			// Validate check-system-version if it's used for validation (not selection)
+			String versionSource = request.getVersionSource(systemUrl);
+			if (checkSystemVersionMap.containsKey(systemUrl) &&
+			    !"check-system-version".equals(versionSource) &&
+			    !"force-system-version".equals(versionSource)) {
+				// check-system-version is used for validation, not selection
+				String requiredPattern = checkSystemVersionMap.get(systemUrl);
+				String actualVersion = codeSystem.getVersion();
 
-					if (actualVersion != null && !versionMatches(actualVersion, requiredVersionPattern)) {
-						throwVersionCheckException(systemUrl, actualVersion, requiredVersionPattern);
-					}
+				if (actualVersion != null && !versionMatches(actualVersion, requiredPattern)) {
+					throwVersionCheckException(systemUrl, actualVersion, requiredPattern);
 				}
 			}
 
@@ -588,17 +588,26 @@ public class ConceptCollector {
 			return forceSystemVersionMap.get(system);
 		}
 
-		// check-system-version just for vaildate
 		String selectedVersion = null;
 		String source = null;
 
+		// Explicit version from ValueSet
 		if (includeVersion != null && !includeVersion.trim().isEmpty()) {
 			selectedVersion = includeVersion;
 			source = "valueset";
-		} else if (systemVersionMap.containsKey(system)) {
+		}
+		// Explicit version from system-version parameter
+		else if (systemVersionMap.containsKey(system)) {
 			selectedVersion = systemVersionMap.get(system);
 			source = "system-version";
-		} else {
+		}
+		// When no explicit version, check-system-version can be used to SELECT matching version
+		else if (checkSystemVersionMap.containsKey(system)) {
+			selectedVersion = checkSystemVersionMap.get(system);  // This is a pattern like "1.0.x"
+			source = "check-system-version";
+		}
+		// Fallback to latest version
+		else {
 			selectedVersion = null;
 			source = "default";
 		}

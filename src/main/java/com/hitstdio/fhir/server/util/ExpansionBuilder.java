@@ -212,7 +212,14 @@ public class ExpansionBuilder {
 			}
 		}
 
-		// check-system-version is a validation-only parameter and should NOT be echoed
+		// Add check-system-version parameters (only when used for version selection)
+		if (request.getCheckSystemVersion() != null) {
+			for (UriType csv : request.getCheckSystemVersion()) {
+				if (csv != null && !csv.isEmpty() && isCheckVersionParameterUsed(csv, request)) {
+					expansion.addParameter().setName("check-system-version").setValue(csv);
+				}
+			}
+		}
 
 		// Add force-system-version parameters
 		if (request.getForceSystemVersion() != null) {
@@ -247,6 +254,24 @@ public class ExpansionBuilder {
 
 		String versionSource = request.getVersionSource(systemUrl);
 		return "system-version".equals(versionSource);
+	}
+
+	private boolean isCheckVersionParameterUsed(UriType checkSystemVersion, ExpansionRequest request) {
+		String value = checkSystemVersion.getValue();
+		if (value == null || value.trim().isEmpty()) {
+			return false;
+		}
+
+		String[] parts = value.split("\\|", 2);
+		if (parts.length != 2) {
+			return false;
+		}
+
+		String systemUrl = parts[0];
+
+		// Check if this system was used and the version source is check-system-version
+		String versionSource = request.getVersionSource(systemUrl);
+		return "check-system-version".equals(versionSource);
 	}
 
 	/**
