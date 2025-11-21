@@ -232,6 +232,7 @@ public class ExpansionBuilder {
 	}
 
 
+
 	private boolean isVersionParameterUsed(UriType systemVersion, ExpansionRequest request) {
 		String value = systemVersion.getValue();
 		if (value == null || value.trim().isEmpty()) {
@@ -247,7 +248,12 @@ public class ExpansionBuilder {
 		String requestedVersion = parts[1];
 
 		java.util.List<String> usedVersions = request.getUsedCodeSystemVersions(systemUrl);
-		return usedVersions != null && usedVersions.contains(requestedVersion);
+		if (usedVersions == null || !usedVersions.contains(requestedVersion)) {
+			return false;
+		}
+
+		String versionSource = request.getVersionSource(systemUrl);
+		return "system-version".equals(versionSource);
 	}
 
 	/**

@@ -43,6 +43,7 @@ public class ExpansionRequest {
     private Map<String, Resource> txResourceMap;
     private Map<String, List<String>> usedCodeSystemVersions;
     private Map<String, List<String>> requestedCodeSystemVersions;
+    private Map<String, String> versionSourceMap;
     
     private ExpansionRequest(Builder builder) {
         this.id = builder.id;
@@ -223,6 +224,20 @@ public class ExpansionRequest {
             return null;
         }
         return usedCodeSystemVersions.get(systemUrl);
+    }
+
+    public void recordVersionSource(String systemUrl, String source) {
+        if (versionSourceMap == null) {
+            versionSourceMap = new HashMap<>();
+        }
+        versionSourceMap.put(systemUrl, source);
+    }
+
+    public String getVersionSource(String systemUrl) {
+        if (versionSourceMap == null) {
+            return null;
+        }
+        return versionSourceMap.get(systemUrl);
     }
 
     // Builder

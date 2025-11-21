@@ -89,7 +89,7 @@ public class ConceptCollector {
 		          }
 
 		          String version = determineSystemVersion(systemUrl, include.getVersion(),
-		                  systemVersionMap, checkSystemVersionMap, forceSystemVersionMap);
+		                  systemVersionMap, checkSystemVersionMap, forceSystemVersionMap, request);
 
 		          try {
 		              CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
@@ -133,7 +133,7 @@ public class ConceptCollector {
 		}
 
 		String version = determineSystemVersion(systemUrl, include.getVersion(), systemVersionMap,
-				checkSystemVersionMap, forceSystemVersionMap);
+				checkSystemVersionMap, forceSystemVersionMap, request);
 
 		CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
 
@@ -566,9 +566,10 @@ public class ConceptCollector {
 	}
 
 	private String determineSystemVersion(String system, String includeVersion, Map<String, String> systemVersionMap,
-			Map<String, String> checkSystemVersionMap, Map<String, String> forceSystemVersionMap) {
+			Map<String, String> checkSystemVersionMap, Map<String, String> forceSystemVersionMap, ExpansionRequest request) {
 
 		if (forceSystemVersionMap.containsKey(system)) {
+			request.recordVersionSource(system, "force-system-version");
 			return forceSystemVersionMap.get(system);
 		}
 
@@ -579,14 +580,22 @@ public class ConceptCollector {
 						"ValueSet specifies version '" + includeVersion + "' for system '" + system
 								+ "', but check-system-version requires version '" + expectedVersion + "'");
 			}
+			request.recordVersionSource(system, "check-system-version");
 			return expectedVersion;
 		}
 
 		if (includeVersion != null && !includeVersion.trim().isEmpty()) {
+			request.recordVersionSource(system, "valueset");
 			return includeVersion;
 		}
 
-		return systemVersionMap.get(system);
+		if (systemVersionMap.containsKey(system)) {
+			request.recordVersionSource(system, "system-version");
+			return systemVersionMap.get(system);
+		}
+
+		request.recordVersionSource(system, "default");
+		return null;
 	}
 
 	private void validateFilters(ConceptSetComponent include, int includeIndex, ValueSet sourceValueSet) {
