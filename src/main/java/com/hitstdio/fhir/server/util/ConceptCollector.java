@@ -80,7 +80,28 @@ public class ConceptCollector {
 
 		List<ConceptSetComponent> includes = sourceValueSet.getCompose().getInclude();
 
-		for (int i = 0; i < includes.size(); i++) {
+		  for (ConceptSetComponent include : includes) {
+		      if (include.hasSystem()) {
+		          String systemUrl = include.getSystem();
+
+		          if (include.hasVersion()) {
+		              request.recordRequestedCodeSystemVersion(systemUrl, include.getVersion());
+		          }
+
+		          String version = determineSystemVersion(systemUrl, include.getVersion(),
+		                  systemVersionMap, checkSystemVersionMap, forceSystemVersionMap, request);
+
+		          try {
+		              CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
+		              if (codeSystem != null && codeSystem.hasVersion()) {
+		                  request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+		              }
+		          } catch (Exception e) {
+		          }
+		      }
+		  }
+
+		  for (int i = 0; i < includes.size(); i++) {
 			ConceptSetComponent include = includes.get(i);
 			validateFilters(include, i, sourceValueSet);
 
@@ -112,11 +133,25 @@ public class ConceptCollector {
 		}
 
 		String version = determineSystemVersion(systemUrl, include.getVersion(), systemVersionMap,
-				checkSystemVersionMap, forceSystemVersionMap);
+				checkSystemVersionMap, forceSystemVersionMap, request);
 
 		CodeSystem codeSystem = resourceFinder.findCodeSystem(systemUrl, version, request);
 
 		if (codeSystem != null) {
+			// Validate check-system-version if it's used for validation (not selection)
+			String versionSource = request.getVersionSource(systemUrl);
+			if (checkSystemVersionMap.containsKey(systemUrl) &&
+			    !"check-system-version".equals(versionSource) &&
+			    !"force-system-version".equals(versionSource)) {
+				// check-system-version is used for validation, not selection
+				String requiredPattern = checkSystemVersionMap.get(systemUrl);
+				String actualVersion = codeSystem.getVersion();
+
+				if (actualVersion != null && !versionMatches(actualVersion, requiredPattern)) {
+					throwVersionCheckException(systemUrl, actualVersion, requiredPattern);
+				}
+			}
+
 			addSystemParameters(expansion, codeSystem, systemUrl, version);
 			addCodesFromCodeSystem(includedCodes, sourceValueSet, codeSystem, include, request);
 		}
@@ -138,7 +173,8 @@ public class ConceptCollector {
 
 				expansion.addParameter().setName("used-valueset").setValue(resolvedCanonical.copy());
 
-				expansion.addParameter().setName("version").setValue(resolvedCanonical.copy());
+				// 移除 version 參數
+				// expansion.addParameter().setName("version").setValue(resolvedCanonical.copy());
 
 				// Add warning if withdrawn
 				String vsStatus = getStandardsStatus(importedVs);
@@ -288,7 +324,9 @@ public class ConceptCollector {
 						&& conceptFilter.shouldIncludeConcept(sourceValueSet, mergedConceptDef,
 								conceptRef.hasDisplay() ? conceptRef.getDisplay() : mergedConceptDef.getDisplay(),
 								request)) {
-
+					  if (codeSystem.hasVersion()) {
+					      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+					  }
 					allCodes.add(componentBuilder.createExpansionComponent(codeSystem, mergedConceptDef, request));
 				}
 			}
@@ -314,6 +352,7 @@ public class ConceptCollector {
 					conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/valueset-label", "label", conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/itemWeight", "weight", conceptDef);
+			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status", "status", conceptDef);
 		}
 	}
 
@@ -405,6 +444,9 @@ public class ConceptCollector {
 
 		ValueSetExpansionContainsComponent currentComponent = null;
 		if (isIncluded) {
+			  if (codeSystem.hasVersion()) {
+			      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+			  }
 			currentComponent = componentBuilder.createExpansionComponent(codeSystem, conceptDef, request);
 			parentContainsList.add(currentComponent);
 		}
@@ -439,6 +481,9 @@ public class ConceptCollector {
 
 		while (currentConcept != null) {
 			if (conceptFilter.matchesAllFilters(currentConcept, propertyFilters, codeSystem)) {
+				  if (codeSystem.hasVersion()) {
+				      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
+				  }
 				concepts.add(componentBuilder.createExpansionComponent(codeSystem, currentConcept, request));
 			}
 			currentConcept = parentMap.get(currentConcept);
@@ -535,27 +580,40 @@ public class ConceptCollector {
 	}
 
 	private String determineSystemVersion(String system, String includeVersion, Map<String, String> systemVersionMap,
-			Map<String, String> checkSystemVersionMap, Map<String, String> forceSystemVersionMap) {
+			Map<String, String> checkSystemVersionMap, Map<String, String> forceSystemVersionMap, ExpansionRequest request) {
 
+		// force-system-version 1st
 		if (forceSystemVersionMap.containsKey(system)) {
+			request.recordVersionSource(system, "force-system-version");
 			return forceSystemVersionMap.get(system);
 		}
 
-		if (checkSystemVersionMap.containsKey(system)) {
-			String expectedVersion = checkSystemVersionMap.get(system);
-			if (includeVersion != null && !includeVersion.equals(expectedVersion)) {
-				throw new UnprocessableEntityException(
-						"ValueSet specifies version '" + includeVersion + "' for system '" + system
-								+ "', but check-system-version requires version '" + expectedVersion + "'");
-			}
-			return expectedVersion;
-		}
+		String selectedVersion = null;
+		String source = null;
 
+		// Explicit version from ValueSet
 		if (includeVersion != null && !includeVersion.trim().isEmpty()) {
-			return includeVersion;
+			selectedVersion = includeVersion;
+			source = "valueset";
+		}
+		// Explicit version from system-version parameter
+		else if (systemVersionMap.containsKey(system)) {
+			selectedVersion = systemVersionMap.get(system);
+			source = "system-version";
+		}
+		// When no explicit version, check-system-version can be used to SELECT matching version
+		else if (checkSystemVersionMap.containsKey(system)) {
+			selectedVersion = checkSystemVersionMap.get(system);  // This is a pattern like "1.0.x"
+			source = "check-system-version";
+		}
+		// Fallback to latest version
+		else {
+			selectedVersion = null;
+			source = "default";
 		}
 
-		return systemVersionMap.get(system);
+		request.recordVersionSource(system, source);
+		return selectedVersion;
 	}
 
 	private void validateFilters(ConceptSetComponent include, int includeIndex, ValueSet sourceValueSet) {
@@ -601,7 +659,8 @@ public class ConceptCollector {
 	private void addSystemParameters(ValueSetExpansionComponent expansion, CodeSystem codeSystem, String systemUrl,
 			String version) {
 
-		String finalVersion = (version != null) ? version : codeSystem.getVersion();
+		// Prefer the actual CodeSystem version over the requested version (which might be a wildcard like "1.x.x")
+		String finalVersion = codeSystem.hasVersion() ? codeSystem.getVersion() : version;
 
 		UriType parameterValue;
 		if (finalVersion != null && !finalVersion.trim().isEmpty()) {
@@ -613,7 +672,8 @@ public class ConceptCollector {
 		// Add used-codesystem parameter
 		if (!hasParameter(expansion, "used-codesystem", parameterValue)) {
 			expansion.addParameter().setName("used-codesystem").setValue(parameterValue.copy());
-			expansion.addParameter().setName("version").setValue(parameterValue.copy());
+			// 移除 version 參數
+			// expansion.addParameter().setName("version").setValue(parameterValue.copy());
 		}
 
 		// Add warnings if needed
@@ -632,7 +692,17 @@ public class ConceptCollector {
 	}
 
 	private boolean hasParameter(ValueSetExpansionComponent expansion, String name, Type value) {
-		return expansion.getParameter().stream().anyMatch(p -> name.equals(p.getName()) && value.equals(p.getValue()));
+		return expansion.getParameter().stream().anyMatch(p -> {
+			if (!name.equals(p.getName())) {
+				return false;
+			}
+			if (value instanceof UriType && p.getValue() instanceof UriType) {
+				String val1 = ((UriType) value).getValue();
+				String val2 = ((UriType) p.getValue()).getValue();
+				return val1 != null && val1.equals(val2);
+			}
+			return value.equalsDeep(p.getValue());
+		});
 	}
 
 	private void addWarningParameter(ValueSetExpansionComponent expansion, String warningType, Type value) {
@@ -647,5 +717,55 @@ public class ConceptCollector {
 		return resource.getExtension().stream()
 				.filter(ext -> EXT_STANDARDS_STATUS.equals(ext.getUrl()) && ext.getValue() instanceof CodeType)
 				.map(ext -> ((CodeType) ext.getValue()).getCode()).findFirst().orElse(null);
+	}
+
+	/**
+	 * Checks if a version matches a version pattern (supports wildcards like "1.0.x")
+	 */
+	private boolean versionMatches(String actualVersion, String pattern) {
+		if (pattern == null || actualVersion == null) {
+			return false;
+		}
+
+		// Exact match
+		if (pattern.equals(actualVersion)) {
+			return true;
+		}
+
+		// Wildcard match - replace 'x' with regex pattern
+		String regexPattern = pattern.replace(".", "\\.")  // Escape dots
+				.replace("x", "[0-9]+");  // Replace x with digit pattern
+
+		return actualVersion.matches(regexPattern);
+	}
+
+	/**
+	 * Throws an UnprocessableEntityException with proper OperationOutcome for version check failure
+	 */
+	private void throwVersionCheckException(String systemUrl, String actualVersion, String requiredPattern) {
+		OperationOutcome outcome = new OperationOutcome();
+		OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
+
+		// Add extension with message ID
+		Extension ext = new Extension();
+		ext.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+		ext.setValue(new StringType("VALUESET_VERSION_CHECK"));
+		issue.addExtension(ext);
+
+		// Set severity and code
+		issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		issue.setCode(OperationOutcome.IssueType.EXCEPTION);
+
+		// Set details
+		CodeableConcept details = new CodeableConcept();
+		details.addCoding()
+				.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+				.setCode("version-error");
+		details.setText(String.format(
+				"The version '%s' is not allowed for system '%s': required to be '%s' by a version-check parameter",
+				actualVersion, systemUrl, requiredPattern));
+		issue.setDetails(details);
+
+		throw new UnprocessableEntityException(outcome);
 	}
 }

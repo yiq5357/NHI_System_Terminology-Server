@@ -166,6 +166,16 @@ public class ValueSetExpansionService {
 			String url = request.getUrl().getValue();
 			String version = request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null;
 
+			// Parse version from canonical URL if present (format: url|version)
+			if (url.contains("|")) {
+				String[] parts = url.split("\\|", 2);
+				url = parts[0];
+				// Only use the version from URL if no explicit valueSetVersion parameter was provided
+				if (version == null && parts.length > 1) {
+					version = parts[1];
+				}
+			}
+
 			if (version != null) {
 				String versionedKey = url + "|" + version;
 				if (txResources.containsKey(versionedKey)) {
@@ -187,9 +197,20 @@ public class ValueSetExpansionService {
 					"Either a resource ID or the 'url' parameter must be provided for the $expand operation.");
 		}
 
-		return resourceFinder.findValueSetByUrl(request.getUrl().getValue(),
-				request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null,
-				request.getRequestDetails());
+		String url = request.getUrl().getValue();
+		String version = request.getValueSetVersion() != null ? request.getValueSetVersion().getValue() : null;
+
+		// Parse version from canonical URL if present (format: url|version)
+		if (url.contains("|")) {
+			String[] parts = url.split("\\|", 2);
+			url = parts[0];
+			// Only use the version from URL if no explicit valueSetVersion parameter was provided
+			if (version == null && parts.length > 1) {
+				version = parts[1];
+			}
+		}
+
+		return resourceFinder.findValueSetByUrl(url, version, request.getRequestDetails());
 	}
 
 	/**
@@ -293,6 +314,7 @@ public class ValueSetExpansionService {
 		final String SUPPLEMENT_URL = "http://hl7.org/fhir/StructureDefinition/valueset-supplement";
 		Map<String, CodeSystem> supplements = new HashMap<>();
 
+		// First, process supplements explicitly declared in ValueSet extensions
 		for (Extension ext : sourceValueSet.getExtension()) {
 			if (SUPPLEMENT_URL.equals(ext.getUrl()) && ext.getValue() instanceof CanonicalType) {
 				CanonicalType supplementCanonical = (CanonicalType) ext.getValue();
@@ -304,13 +326,35 @@ public class ValueSetExpansionService {
 					CodeSystem supplementCs = resourceFinder.findCodeSystem(url, version, request);
 
 					if (supplementCs != null) {
-						expansion.addParameter().setName("used-supplement").setValue(supplementCanonical.copy());
-						expansion.addParameter().setName("version").setValue(supplementCanonical.copy());
-
 						supplements.put(url, supplementCs);
 					}
 				}
 			}
+		}
+
+		// Second, auto-discover supplements for each included CodeSystem
+		if (sourceValueSet.hasCompose()) {
+			for (ConceptSetComponent include : sourceValueSet.getCompose().getInclude()) {
+				if (include.hasSystem()) {
+					String systemUrl = include.getSystem();
+					// Find all CodeSystems that supplement this system
+					List<CodeSystem> autoDiscoveredSupplements = resourceFinder.findSupplementsForSystem(systemUrl, request);
+					for (CodeSystem supplementCs : autoDiscoveredSupplements) {
+						if (!supplements.containsKey(supplementCs.getUrl())) {
+							supplements.put(supplementCs.getUrl(), supplementCs);
+						}
+					}
+				}
+			}
+		}
+
+		// Record all used supplements in expansion parameters
+		for (CodeSystem supplementCs : supplements.values()) {
+			String canonicalUrl = supplementCs.getUrl();
+			if (supplementCs.hasVersion()) {
+				canonicalUrl += "|" + supplementCs.getVersion();
+			}
+			expansion.addParameter().setName("used-supplement").setValue(new UriType(canonicalUrl));
 		}
 
 		request.setSupplements(supplements);
