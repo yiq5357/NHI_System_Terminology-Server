@@ -16,6 +16,7 @@ public class ConceptComponentBuilder {
 
 	private final ConceptFilter conceptFilter;
 	private final LanguageProcessor languageProcessor;
+	private final ThreadLocal<Set<String>> propertiesFromExtensions = ThreadLocal.withInitial(HashSet::new);
 
 	public ConceptComponentBuilder(ConceptFilter conceptFilter) {
 		this.conceptFilter = conceptFilter;
@@ -29,21 +30,26 @@ public class ConceptComponentBuilder {
             CodeSystem codeSystem,
             CodeSystem.ConceptDefinitionComponent conceptDef,
             ExpansionRequest request) {
+    	propertiesFromExtensions.get().clear();
     	preprocessConceptExtensions(conceptDef);
-    	
+
         ValueSetExpansionContainsComponent component = new ValueSetExpansionContainsComponent();
         component.setSystem(codeSystem.getUrl());
         component.setCode(conceptDef.getCode());
         
-        CodeSystem.ConceptDefinitionComponent mergedConceptDef = 
+        if (codeSystem.hasVersion() && request.shouldIncludeVersion(codeSystem.getUrl())) {
+            component.setVersion(codeSystem.getVersion());
+        }
+
+        CodeSystem.ConceptDefinitionComponent mergedConceptDef =
                 mergeWithSupplements(conceptDef, request);
-        
+
         processDisplay(component, mergedConceptDef, codeSystem, request);
         setConceptFlags(component, mergedConceptDef, codeSystem);
         if (shouldIncludeDesignations(request)) {
             addDesignations(component, mergedConceptDef, request);
         }
-        
+
         List<Extension> knownNonPropertyExtensions = mergedConceptDef.getExtension().stream()
                 .filter(ext -> isKnownNonPropertyExtension(ext.getUrl()))
                 .collect(Collectors.toList());
@@ -53,7 +59,8 @@ public class ConceptComponentBuilder {
         if (request.getProperty() != null && !request.getProperty().isEmpty()) {
             addProperties(component, mergedConceptDef, request.getProperty());
         }
-        
+
+        propertiesFromExtensions.get().clear();
         return component;
     }
 
@@ -62,7 +69,7 @@ public class ConceptComponentBuilder {
         if (!conceptDef.hasExtension()) {
             return;
         }
-        
+
         for (Extension ext : new ArrayList<>(conceptDef.getExtension())) {
             getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(propertyCode -> {
                 if (ext.hasValue()) {
@@ -70,6 +77,8 @@ public class ConceptComponentBuilder {
                     conceptDef.addProperty()
                         .setCode(propertyCode)
                         .setValue(ext.getValue());
+                    // Track that this property came from an extension
+                    propertiesFromExtensions.get().add(propertyCode);
                 }
             });
         }
@@ -149,6 +158,8 @@ public class ConceptComponentBuilder {
                 return java.util.Optional.of("label");
             case "http://hl7.org/fhir/StructureDefinition/itemWeight":
                 return java.util.Optional.of("weight");
+            case "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status":
+                return java.util.Optional.of("status");
             default:
                 return java.util.Optional.empty();
         }
@@ -198,7 +209,7 @@ public class ConceptComponentBuilder {
 					demoted.setLanguage(defaultLanguage);
 					demoted.setValue(defaultDisplay);
 					demoted.setUse(
-							new Coding("http://terminology.hl7.org/CodeSystem/designation-usage", "display", null));
+							new Coding("http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra", "preferredForLanguage", null));
 					finalDesignations.add(demoted);
 				}
 			} else {
@@ -211,7 +222,7 @@ public class ConceptComponentBuilder {
 						demoted.setLanguage(defaultLanguage);
 						demoted.setValue(defaultDisplay);
 						demoted.setUse(
-								new Coding("http://terminology.hl7.org/CodeSystem/designation-usage", "display", null));
+								new Coding("http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra", "preferredForLanguage", null));
 						finalDesignations.add(demoted);
 					}
 				}
@@ -235,7 +246,10 @@ public class ConceptComponentBuilder {
 		if (isAbstract) {
 			component.setAbstract(isAbstract);
 		}
-		if (isInactive) {
+
+		// Only set inactive attribute if the concept is inactive AND the status property
+		// did NOT come from an extension (structuredefinition-standards-status)
+		if (isInactive && !propertiesFromExtensions.get().contains("status")) {
 			component.setInactive(isInactive);
 		}
 	}

@@ -41,6 +41,9 @@ public class ExpansionRequest {
     private Map<String, String> defaultValueSetVersions;
     private Map<String, CodeSystem> supplements;
     private Map<String, Resource> txResourceMap;
+    private Map<String, List<String>> usedCodeSystemVersions;
+    private Map<String, List<String>> requestedCodeSystemVersions;
+    private Map<String, String> versionSourceMap;
     
     private ExpansionRequest(Builder builder) {
         this.id = builder.id;
@@ -178,6 +181,65 @@ public class ExpansionRequest {
         this.supplements = supplements;
     }
     
+    public void recordUsedCodeSystem(String systemUrl, String version) {
+        if (usedCodeSystemVersions == null) {
+            usedCodeSystemVersions = new HashMap<>();
+        }
+        List<String> versions = usedCodeSystemVersions.computeIfAbsent(systemUrl, k -> new ArrayList<>());
+        if (!versions.contains(version)) {
+            versions.add(version);
+        }
+    }
+
+    public void recordRequestedCodeSystemVersion(String systemUrl, String version) {
+        if (requestedCodeSystemVersions == null) {
+            requestedCodeSystemVersions = new HashMap<>();
+        }
+        List<String> versions = requestedCodeSystemVersions.computeIfAbsent(systemUrl, k -> new ArrayList<>());
+        if (version != null && !version.trim().isEmpty() && !versions.contains(version)) {
+            versions.add(version);
+        }
+    }
+
+    public boolean shouldIncludeVersion(String systemUrl) {
+        if (requestedCodeSystemVersions != null) {
+            List<String> requestedVersions = requestedCodeSystemVersions.get(systemUrl);
+            if (requestedVersions != null && requestedVersions.size() > 1) {
+                return true;
+            }
+        }
+
+        if (usedCodeSystemVersions == null) {
+            return false;
+        }
+        List<String> versions = usedCodeSystemVersions.get(systemUrl);
+        return versions != null && versions.size() > 1;
+    }
+
+    /**
+     * 獲取某個 CodeSystem 實際使用的版本列表
+     */
+    public List<String> getUsedCodeSystemVersions(String systemUrl) {
+        if (usedCodeSystemVersions == null) {
+            return null;
+        }
+        return usedCodeSystemVersions.get(systemUrl);
+    }
+
+    public void recordVersionSource(String systemUrl, String source) {
+        if (versionSourceMap == null) {
+            versionSourceMap = new HashMap<>();
+        }
+        versionSourceMap.put(systemUrl, source);
+    }
+
+    public String getVersionSource(String systemUrl) {
+        if (versionSourceMap == null) {
+            return null;
+        }
+        return versionSourceMap.get(systemUrl);
+    }
+
     // Builder
     public static Builder builder() {
         return new Builder();

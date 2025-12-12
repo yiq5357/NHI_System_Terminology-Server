@@ -223,6 +223,10 @@ public class ConceptFilter {
     
     /**
      * Determines if a concept is inactive
+     * According to FHIR terminology standards:
+     * - "retired" status means inactive
+     * - "deprecated" status does NOT mean inactive (just means use is discouraged)
+     * - explicit inactive=true property means inactive
      */
     public boolean isConceptInactive(CodeSystem.ConceptDefinitionComponent concept) {
         return concept.getProperty().stream()
@@ -230,14 +234,13 @@ public class ConceptFilter {
                 if ("inactive".equals(p.getCode()) && p.getValue() instanceof BooleanType) {
                     return ((BooleanType) p.getValue()).booleanValue();
                 }
-                
+
                 if ("status".equals(p.getCode()) && p.getValue() instanceof CodeType) {
                     String statusCode = ((CodeType) p.getValue()).getCode();
-                    boolean isKnownActive = "active".equalsIgnoreCase(statusCode) || 
-                                          "A".equalsIgnoreCase(statusCode);
-                    return !isKnownActive;
+                    // Only "retired" status means inactive, not "deprecated"
+                    return "retired".equalsIgnoreCase(statusCode);
                 }
-                
+
                 return false;
             });
     }
