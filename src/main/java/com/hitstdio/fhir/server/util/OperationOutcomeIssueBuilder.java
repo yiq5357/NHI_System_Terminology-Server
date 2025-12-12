@@ -35,7 +35,6 @@ public class OperationOutcomeIssueBuilder {
             txIssueType,
             null
         ));
-        details.setText(text);
         issue.setDetails(details);
         return this;
     }

@@ -16,18 +16,28 @@ public record ValidationResult(
 	    Boolean isInactive,
 	    CodeSystemVersionNotFoundException versionException,
 	    List<String> missingValueSets
-) {
-	// 為了向後兼容，提供原有的建構函數
-    public ValidationResult(boolean isValid, ConceptDefinitionComponent concept, 
-                          CodeSystem codeSystem, String display, 
-                          ValidationErrorType errorType, Boolean isInactive) {
-        this(isValid, concept, codeSystem, display, errorType, isInactive, null, null);
+	) {
+	// 為了向後兼容，提供靜態工廠方法
+    public static ValidationResult of(boolean isValid, ConceptDefinitionComponent concept, 
+                                     CodeSystem codeSystem, String display, 
+                                     ValidationErrorType errorType, Boolean isInactive) {
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, null, null);
     }
     
-    public ValidationResult(boolean isValid, ConceptDefinitionComponent concept, 
-                          CodeSystem codeSystem, String display, 
-                          ValidationErrorType errorType, Boolean isInactive,
-                          CodeSystemVersionNotFoundException versionException) {
-        this(isValid, concept, codeSystem, display, errorType, isInactive, versionException, null);
+    // 提供包含 versionException 的靜態工廠方法
+    public static ValidationResult withVersionException(boolean isValid, ConceptDefinitionComponent concept, 
+                                                       CodeSystem codeSystem, String display, 
+                                                       ValidationErrorType errorType, Boolean isInactive,
+                                                       CodeSystemVersionNotFoundException versionException) {
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, null);
     }
-  }
+    
+    // 提供包含 missingValueSets 的靜態工廠方法
+    public static ValidationResult withMissingValueSets(boolean isValid, ConceptDefinitionComponent concept, 
+                                                       CodeSystem codeSystem, String display, 
+                                                       ValidationErrorType errorType, Boolean isInactive,
+                                                       CodeSystemVersionNotFoundException versionException,
+                                                       List<String> missingValueSets) {
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, missingValueSets);
+    }
+}

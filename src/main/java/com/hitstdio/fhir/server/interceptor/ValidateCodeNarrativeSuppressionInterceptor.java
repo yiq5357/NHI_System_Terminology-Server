@@ -52,6 +52,7 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	        if (responseObject instanceof OperationOutcome) {
 	            OperationOutcome outcome = (OperationOutcome) responseObject;
 	            cleanResourceMetadata(outcome);
+	            cleanOperationOutcome(outcome);
 	            
 	            writeResponse(requestDetails, responseDetails, servletResponse, outcome);
 	            return false;
@@ -68,17 +69,70 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	                              HttpServletResponse servletResponse,
 	                              Resource resource) throws IOException {
 	        
+	    	// 強制清除所有可能的 narrative
+	        forceCleanNarrative(resource);
+	    	
 	        IParser parser = requestDetails.getFhirContext()
 	            .newJsonParser()
 	            .setPrettyPrint(true)
-	            .setSuppressNarratives(true)
-	            .setDontEncodeElements(Set.of("*.meta", "*.text"));
+	            .setSuppressNarratives(true);
+
+	         // 明確指定不要編碼這些元素
+	            parser.setDontEncodeElements(Set.of(
+	                "*.meta", 
+	                "*.text", 
+	                "*.id",
+	                "*.text.status",
+	                "*.text.div"
+	            ));
 	        
 	        String encoded = parser.encodeResourceToString(resource);
+	        
+	        encoded = removeTextFromJson(encoded);
 	        
 	        servletResponse.setContentType("application/fhir+json;charset=UTF-8");
 	        servletResponse.setStatus(responseDetails.getResponseCode());
 	        servletResponse.getWriter().write(encoded);
+	        servletResponse.getWriter().flush();
+	    }
+	    
+	    private String removeTextFromJson(String json) {
+	        // 使用正則表達式移除 text 欄位
+	        // 匹配 "text": { ... } 或 "text": null
+	        return json.replaceAll(",\\s*\"text\"\\s*:\\s*\\{[^}]*\\}", "")
+	                   .replaceAll(",\\s*\"text\"\\s*:\\s*null", "")
+	                   .replaceAll("\"text\"\\s*:\\s*\\{[^}]*\\}\\s*,", "")
+	                   .replaceAll("\"text\"\\s*:\\s*null\\s*,", "");
+	    }
+	    
+	    private void forceCleanNarrative(Resource resource) {
+	        if (resource == null) {
+	            return;
+	        }
+	        
+	        // 清除 meta
+	        resource.setMeta(null);
+	        resource.setId((String) null);
+	        
+	        // 清除 text
+	        if (resource instanceof DomainResource) {
+	            DomainResource domainResource = (DomainResource) resource;
+	            domainResource.setText(null);
+	            
+	            // 嘗試通過反射徹底清除 text 元素
+	            try {
+	                java.lang.reflect.Field textField = DomainResource.class.getDeclaredField("text");
+	                textField.setAccessible(true);
+	                textField.set(domainResource, null);
+	            } catch (Exception e) {
+	                // 忽略反射錯誤
+	            }
+	        }
+	        
+	        // 如果是 OperationOutcome，清除 issue 中的相關內容
+	        if (resource instanceof OperationOutcome) {
+	            cleanOperationOutcome((OperationOutcome) resource);
+	        }
 	    }
 	    
 	    private void cleanResourceMetadata(Resource resource) {
@@ -93,6 +147,26 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	        }
 	    }
 	    
+	    private void cleanOperationOutcome(OperationOutcome outcome) {
+	        if (outcome == null || !outcome.hasIssue()) {
+	            return;
+	        }
+	        
+	        // 清除每個 issue 中與 narrative 相關的 extensions
+	        for (OperationOutcome.OperationOutcomeIssueComponent issue : outcome.getIssue()) {
+	            if (issue.hasExtension()) {
+	                issue.getExtension().removeIf(ext -> {
+	                    String url = ext.getUrl();
+	                    return url != null && (
+	                        url.contains("narrativeLink") ||
+	                        url.contains("rendering") ||
+	                        url.equals("http://hl7.org/fhir/StructureDefinition/narrativeLink")
+	                    );
+	                });
+	            }
+	        }
+	    }
+	    
 	    private void removeNarrativesFromParameters(Parameters parameters) {
 	        if (parameters == null) {
 	            return;
@@ -102,6 +176,11 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	            if (param.hasResource()) {
 	                Resource resource = param.getResource();
 	                cleanResourceMetadata(resource);
+	                
+	                // 特別處理 OperationOutcome
+	                if (resource instanceof OperationOutcome) {
+	                    cleanOperationOutcome((OperationOutcome) resource);
+	                }
 	            }
 	            
 	            if (param.hasPart()) {
@@ -111,11 +190,18 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	    }
 	    
 	    private void removeNarrativesFromNestedParameters(List<ParametersParameterComponent> parts) {
-	        for (ParametersParameterComponent part : parts) {
+	    	for (ParametersParameterComponent part : parts) {
 	            if (part.hasResource()) {
-	                cleanResourceMetadata(part.getResource());
+	                Resource resource = part.getResource();
+	                cleanResourceMetadata(resource);
+	                
+	                // 特別處理 OperationOutcome
+	                if (resource instanceof OperationOutcome) {
+	                    cleanOperationOutcome((OperationOutcome) resource);
+	                }
 	            }
 	            
+	            // 繼續遞歸
 	            if (part.hasPart()) {
 	                removeNarrativesFromNestedParameters(part.getPart());
 	            }

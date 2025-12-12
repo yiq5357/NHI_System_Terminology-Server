@@ -7,6 +7,7 @@ public class OperationOutcomeMessageId {
     public static final String NONE_OF_CODES_IN_VALUE_SET_ONE = "None_of_the_provided_codes_are_in_the_value_set_one";
     public static final String UNABLE_TO_CHECK_CODES_IN_VS = "UNABLE_TO_CHECK_IF_THE_PROVIDED_CODES_ARE_IN_THE_VALUE_SET_CS";
     public static final String TX_GENERAL_CC_ERROR = "TX_GENERAL_CC_ERROR_MESSAGE";
+    public static final String UNABLE_TO_CHECK_CODES_IN_VS_VS = "UNABLE_TO_CHECK_IF_THE_PROVIDED_CODES_ARE_IN_THE_VALUE_SET_VS";
     
     // CodeSystem 相關
     public static final String UNKNOWN_CODE_IN_VERSION = "Unknown_Code_in_Version";
@@ -20,10 +21,12 @@ public class OperationOutcomeMessageId {
     // 其他驗證錯誤
     public static final String ABSTRACT_CODE_NOT_ALLOWED = "Abstract_Code_Not_Allowed";
     public static final String INVALID_DISPLAY = "Invalid_Display";
+    public static final String DISPLAY_NAME_SHOULD_BE_ONE_OF = "Display_Name_for__should_be_one_of__instead_of";
     public static final String STATUS_CODE_WARNING = "STATUS_CODE_WARNING_CODE";
     public static final String MISSING_REQUIRED_PARAMETER = "Missing_Required_Parameter";
     public static final String THIS_CODE_NOT_IN_VS = "this-code-not-in-vs";
     public static final String INACTIVE_CONCEPT_FOUND = "INACTIVE_CONCEPT_FOUND";
+    public static final String DISPLAY_NAME_SHOULD_BE_ONE_OF_INSTEAD_OF = "Display_Name_for__should_be_one_of__instead_of";
     
     // 常用的 URL 常量
     public static final String TX_ISSUE_TYPE_SYSTEM = "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type";
