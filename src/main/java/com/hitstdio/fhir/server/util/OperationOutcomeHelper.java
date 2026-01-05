@@ -184,6 +184,10 @@ public class OperationOutcomeHelper {
     public static OperationOutcome createValueSetNotFoundOutcome(String valueSetUrl, String errorMessage) {
         OperationOutcome outcome = new OperationOutcome();
         
+        // 確保不創建 text
+        outcome.setText(null);
+        outcome.setMeta(null);
+        
         // Issue 1: ValueSet not found
         var notFoundIssue = new OperationOutcomeIssueBuilder()
             .setSeverity(OperationOutcome.IssueSeverity.ERROR)

@@ -12,6 +12,7 @@ import com.hitstdio.fhir.server.provider.CodeSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.ConceptMapResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
+import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
 import com.hitstdio.fhir.server.provider.StructureDefinitionResourceProvider;
 
 import java.util.ArrayList;

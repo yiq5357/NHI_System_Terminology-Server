@@ -17,6 +17,7 @@ import ca.uhn.fhir.interceptor.api.Pointcut;
 import ca.uhn.fhir.parser.IParser;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.api.server.ResponseDetails;
+import ca.uhn.fhir.rest.server.exceptions.BaseServerResponseException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -24,6 +25,7 @@ import jakarta.servlet.http.HttpServletResponse;
 @Interceptor
 public class ValidateCodeNarrativeSuppressionInterceptor {
 
+	 //處理正常回應
 	 @Hook(Pointcut.SERVER_OUTGOING_RESPONSE)
 	    public boolean suppressNarrativeForValidateCode(
 	            RequestDetails requestDetails,
@@ -60,10 +62,40 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	        
 	        return true;
 	    }
+	 
+	 	//處理異常情況下的回應 - 新增這個 Hook
+	    @Hook(Pointcut.SERVER_HANDLE_EXCEPTION)
+	    public boolean handleException(
+	            RequestDetails requestDetails,
+	            BaseServerResponseException exception,
+	            HttpServletRequest servletRequest,
+	            HttpServletResponse servletResponse) throws IOException {
+	        
+	        // 只處理 $validate-code 操作
+	        if (!"$validate-code".equals(requestDetails.getOperation())) {
+	            return true;
+	        }
+	        
+	        // 獲取異常中的 OperationOutcome
+	        OperationOutcome outcome = (OperationOutcome) exception.getOperationOutcome();
+	        
+	        if (outcome != null) {
+	            cleanResourceMetadata(outcome);
+	            cleanOperationOutcome(outcome);
+	            
+	            // 創建 ResponseDetails
+	            ResponseDetails responseDetails = new ResponseDetails();
+	            responseDetails.setResponseResource(outcome);
+	            responseDetails.setResponseCode(exception.getStatusCode());
+	            
+	            writeResponse(requestDetails, responseDetails, servletResponse, outcome);
+	            return false; // 表示已處理異常，不需要繼續傳播
+	        }
+	        
+	        return true; // 繼續正常的異常處理
+	    }
 	    
-	    /**
-	     * 統一的回應寫入方法
-	     */
+	    //統一的回應寫入方法
 	    private void writeResponse(RequestDetails requestDetails, 
 	                              ResponseDetails responseDetails,
 	                              HttpServletResponse servletResponse,
@@ -102,7 +134,10 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	        return json.replaceAll(",\\s*\"text\"\\s*:\\s*\\{[^}]*\\}", "")
 	                   .replaceAll(",\\s*\"text\"\\s*:\\s*null", "")
 	                   .replaceAll("\"text\"\\s*:\\s*\\{[^}]*\\}\\s*,", "")
-	                   .replaceAll("\"text\"\\s*:\\s*null\\s*,", "");
+	                   .replaceAll("\"text\"\\s*:\\s*null\\s*,", "")
+				       // 處理開頭的情況
+			           .replaceAll("\\{\\s*\"text\"\\s*:\\s*\\{[^}]*\\}\\s*,", "{")
+			           .replaceAll("\\{\\s*\"text\"\\s*:\\s*null\\s*,", "{");
 	    }
 	    
 	    private void forceCleanNarrative(Resource resource) {
@@ -141,6 +176,7 @@ public class ValidateCodeNarrativeSuppressionInterceptor {
 	        }
 	        
 	        resource.setMeta(null);
+	        resource.setId((String) null);
 	        
 	        if (resource instanceof DomainResource) {
 	            ((DomainResource) resource).setText(null);

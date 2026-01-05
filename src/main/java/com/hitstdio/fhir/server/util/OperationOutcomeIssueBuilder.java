@@ -35,6 +35,10 @@ public class OperationOutcomeIssueBuilder {
             txIssueType,
             null
         ));
+        // 加入這行：設定 text 欄位
+        if (text != null && !text.isEmpty()) {
+            details.setText(text);
+        }
         issue.setDetails(details);
         return this;
     }

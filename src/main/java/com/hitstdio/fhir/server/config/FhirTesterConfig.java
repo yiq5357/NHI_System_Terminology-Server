@@ -1,16 +1,13 @@
 package com.hitstdio.fhir.server.config;
 
-import org.hl7.fhir.r4.model.CapabilityStatement;
+import java.util.Arrays;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
-import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
-
+import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
-import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
-import ca.uhn.fhir.rest.server.IServerConformanceProvider;
-import ca.uhn.fhir.rest.server.RestfulServer;
 import ca.uhn.fhir.to.FhirTesterMvcConfig;
 import ca.uhn.fhir.to.TesterConfig;
 
@@ -56,7 +53,20 @@ public class FhirTesterConfig {
 		
 		return retVal;
 	}
-
+	
+	 @Bean
+	    public FhirContext fhirContext() {
+	        FhirContext ctx = FhirContext.forR4();
+	        
+	        // 禁用 narrative 生成器
+	        ctx.setNarrativeGenerator(null);
+	        
+	        // 全局禁用 narrative 生成
+	        ctx.getParserOptions().setDontStripVersionsFromReferencesAtPaths(Arrays.asList("none"));
+	        ctx.getParserOptions().setStripVersionsFromReferences(false);
+	        
+	        return ctx;
+	    }
 
 }
 //@formatter:on
