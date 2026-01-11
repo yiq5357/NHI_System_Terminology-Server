@@ -562,12 +562,45 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
             
-         // 在迴圈結束後，先檢查是否完全失敗
+            // 在迴圈結束後，先檢查是否完全失敗
             if (!anyValid && !foundValidCode) {
                 // 完全失敗 - 沒有任何有效的 code
+                
+                // 確保 context 包含完整資訊
+                ValidationContext completeContext;
+                if (failedValidationContext != null) {
+                    // 如果 failedValidationContext 缺少 valueSet 或 system，補充它們
+                    completeContext = new ValidationContext(
+                        failedValidationContext.parameterSource(),
+                        failedValidationContext.code(),
+                        failedValidationContext.system() != null ? 
+                            failedValidationContext.system() : successfulParams.system(),  // 補充 system
+                        failedValidationContext.display(),
+                        failedValidationContext.errorType(),
+                        targetValueSet,  // 確保傳入 targetValueSet
+                        failedValidationContext.systemVersion(),
+                        failedValidationContext.isInactive(),
+                        failedValidationContext.originalCodeableConcept()
+                    );
+                } else {
+                    // 如果完全沒有 failedValidationContext，用 paramsList 的第一個建立
+                    ValidationParams firstParam = paramsList.isEmpty() ? null : paramsList.get(0);
+                    completeContext = new ValidationContext(
+                        firstParam != null ? firstParam.parameterSource() : "code",
+                        code,
+                        resolvedSystem,  // 使用 resolvedSystem
+                        display,
+                        ValidationErrorType.INVALID_CODE,
+                        targetValueSet,  // 傳入 targetValueSet
+                        resolvedSystemVersion,
+                        null,
+                        codeableConcept
+                    );
+                }
+                
                 Parameters errorResult = buildValidationErrorWithOutcome(
                     false, 
-                    failedValidationContext,
+                    completeContext,  // 使用完整的 context
                     matchedCodeSystem, 
                     "Code validation failed");
                 
@@ -1487,6 +1520,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private Parameters buildValidationErrorWithOutcome(boolean isValid, ValidationContext context,
                                                       CodeSystem codeSystem, String errorMessage) {
             	
+    	System.out.println("DEBUG - parameterSource: " + context.parameterSource());
+    	System.out.println("DEBUG - valueSet: " + (context.valueSet() != null ? context.valueSet().getUrl() : "NULL"));
+    	System.out.println("DEBUG - context.system(): " + (context.system() != null ? context.system().getValue() : "NULL"));
+    	System.out.println("DEBUG - codeSystem param: " + (codeSystem != null ? codeSystem.getUrl() : "NULL"));
+    	System.out.println("DEBUG - isCoding: " + "coding".equals(context.parameterSource()));
+    	
     	Parameters result = new Parameters();
 
         result.setMeta(null);
@@ -1503,12 +1542,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         boolean isSystemNotFound = (context.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND);
         boolean isCodeNotInValueSet = (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET);
         
-        // 提前宣告所有需要的變數
+        // 修復：提前宣告並使用 fallback
         String valueSetUrl = context.valueSet() != null && context.valueSet().hasUrl() ? 
             context.valueSet().getUrl() : "";
         String valueSetVersion = context.valueSet() != null && context.valueSet().hasVersion() ? 
             context.valueSet().getVersion() : "5.0.0";
-        String systemUrl = context.system() != null ? context.system().getValue() : "";
+        
+        // 關鍵修復
+        String systemUrl = "";
+        if (context.system() != null && !context.system().isEmpty()) {
+            systemUrl = context.system().getValue();
+        } else if (codeSystem != null && codeSystem.hasUrl()) {
+            systemUrl = codeSystem.getUrl();
+        }
         String codeValue = context.code() != null ? context.code().getValue() : "";
 
         // 根據參數來源決定回傳格式
@@ -1815,9 +1861,22 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         result.addParameter("message", new StringType(mainErrorMessage));
         result.addParameter("result", new BooleanType(isValid));
         
-        // 如果來源是 code 參數且有 system，添加 system 參數
-        if (!isCodeableConcept && context.system() != null && !context.system().isEmpty()) {
-            result.addParameter("system", new UriType(context.system().getValue()));
+        //修復：對於非 codeableConcept，確保回傳 system（添加 fallback）
+        if (!isCodeableConcept) {
+            UriType systemToReturn = null;
+            
+            // 優先使用 context.system()
+            if (context.system() != null && !context.system().isEmpty()) {
+                systemToReturn = context.system();
+            } 
+            // fallback 到 codeSystem 參數
+            else if (codeSystem != null && codeSystem.hasUrl()) {
+                systemToReturn = new UriType(codeSystem.getUrl());
+            }
+            
+            if (systemToReturn != null) {
+                result.addParameter("system", systemToReturn);
+            }
         }
         
         // 只有在以下情況才添加 version：
