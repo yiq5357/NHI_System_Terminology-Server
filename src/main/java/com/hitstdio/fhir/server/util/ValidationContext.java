@@ -12,4 +12,21 @@ public record ValidationContext (
     StringType systemVersion,
     Boolean isInactive,
     CodeableConcept originalCodeableConcept
-) {}
+) {
+	public static ValidationContext forValidateCode(
+	        ValidationContext base,
+	        ValidationErrorType errorType
+	    ) {
+	        return new ValidationContext(
+	            base.parameterSource(),
+	            base.code(),
+	            base.system(),
+	            base.display(),
+	            errorType,
+	            base.valueSet(),
+	            base.systemVersion(),
+	            base.isInactive(),
+	            base.originalCodeableConcept()
+	        );
+	    }
+}
