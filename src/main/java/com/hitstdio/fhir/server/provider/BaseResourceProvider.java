@@ -32,7 +32,6 @@ public abstract class BaseResourceProvider<T extends IBaseResource> implements I
 
 	private final DaoRegistry myDaoRegistry;
 	
-	
 	public BaseResourceProvider(DaoRegistry theDaoRegistry) {
 		myDaoRegistry = theDaoRegistry;
 	}

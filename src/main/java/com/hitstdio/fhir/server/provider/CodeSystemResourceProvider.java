@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 
 public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem> {
     
-    // Extension URL å¸¸æ•¸ - ä½¿ç”¨ enum ç®¡ç†(ä½¿ç”¨åˆ—èˆ‰ä¾†é›†ä¸­ç®¡ç† FHIR æ“´å±•çš„ URL)
+    // Extension URL ±`¼Æ - ¨Ï¥Î enum ºŞ²z(¨Ï¥Î¦CÁ|¨Ó¶°¤¤ºŞ²z FHIR ÂX®iªº URL)
     public enum ExtensionUrls {
         CODESYSTEM_ALTERNATE("http://hl7.org/fhir/StructureDefinition/codesystem-alternate"),
         CODESYSTEM_CONCEPT_ORDER("http://hl7.org/fhir/StructureDefinition/codesystem-conceptOrder"),
@@ -63,9 +63,9 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         "conceptOrder", "itemWeight", "renderingStyle", "renderingXhtml", "sctDescId"
     );
     
-    //dao: ç”¨ä¾†å­˜å– CodeSystem è³‡æºçš„ DAOã€‚
+    //dao: ¥Î¨Ó¦s¨ú CodeSystem ¸ê·½ªº DAO¡C
     private final IFhirResourceDao<CodeSystem> dao;
-    //systemRequestDetails: ç”¨ä¾†åŸ·è¡Œ DAO æ“ä½œæ™‚æ¨¡æ“¬ä¸€å€‹ç³»çµ±å±¤ç´šçš„è«‹æ±‚ã€‚
+    //systemRequestDetails: ¥Î¨Ó°õ¦æ DAO ¾Ş§@®É¼ÒÀÀ¤@­Ó¨t²Î¼h¯Åªº½Ğ¨D¡C
     private final RequestDetails systemRequestDetails;
     
     public CodeSystemResourceProvider(DaoRegistry theDaoRegistry) {
@@ -78,6 +78,46 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     public Class<CodeSystem> getResourceType() {
         return CodeSystem.class;
     }
+    
+    @Search
+    public IBundleProvider search(
+            @OptionalParam(name = CodeSystem.SP_URL) UriParam url,
+            @OptionalParam(name = CodeSystem.SP_VERSION) TokenParam version, // ¨Ï¥Î TokenParam
+            @OptionalParam(name = "_id") TokenParam id,
+            @OptionalParam(name = CodeSystem.SP_NAME) StringParam name,
+            @OptionalParam(name = CodeSystem.SP_STATUS) TokenParam status,
+            RequestDetails theRequestDetails
+    ) {
+        SearchParameterMap searchParams = new SearchParameterMap();
+        
+        // URL °Ñ¼Æ - ³o¬O³Ì­«­nªº¡A¥Î©ó validate-code ¾Ş§@
+        if (url != null) {
+            searchParams.add(CodeSystem.SP_URL, url);
+        }
+        
+        // ª©¥»°Ñ¼Æ - ­×§ï¡Gª½±µ¨Ï¥Î TokenParam
+        if (version != null) {
+            searchParams.add(CodeSystem.SP_VERSION, version);
+        }
+        
+        // ID °Ñ¼Æ
+        if (id != null) {
+            searchParams.add("_id", id);
+        }
+        
+        // ¦WºÙ°Ñ¼Æ
+        if (name != null) {
+            searchParams.add(CodeSystem.SP_NAME, name);
+        }
+        
+        // ª¬ºA°Ñ¼Æ
+        if (status != null) {
+            searchParams.add(CodeSystem.SP_STATUS, status);
+        }
+        
+        return dao.search(searchParams, systemRequestDetails);
+    }
+
     
     @Patch
     public MethodOutcome patch(
@@ -99,7 +139,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             RequestDetails requestDetails) {
         
         try {
-            // è™•ç† POST è«‹æ±‚ä¸­çš„ Parameters è³‡æº
+            // ³B²z POST ½Ğ¨D¤¤ªº Parameters ¸ê·½
             NormalizedParams params;
             List<StringType> requestedProperties = properties;
             
@@ -110,13 +150,13 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     requestedProperties = postParams.properties();
                 }
             } else {
-                // GET è«‹æ±‚çš„åŸå§‹è™•ç†é‚è¼¯
+                // GET ½Ğ¨Dªº­ì©l³B²zÅŞ¿è
                 params = validateAndNormalizeLookupParams(code, system, version, coding);
             }
             
-            // æ ¹æ“šæ¨™æº–åŒ–å¾Œçš„åƒæ•¸ï¼Œå°‹æ‰¾åŒ…å«æŒ‡å®šæ¦‚å¿µçš„ç·¨ç¢¼ç³»çµ±
+            // ®Ú¾Ú¼Ğ·Ç¤Æ«áªº°Ñ¼Æ¡A´M§ä¥]§t«ü©w·§©Àªº½s½X¨t²Î
             var codeSystem = findCodeSystemWithConcept(params.code(), params.system(), params.version());
-            // åœ¨æ‰¾åˆ°çš„ç·¨ç¢¼ç³»çµ±ä¸­ï¼Œå°‹æ‰¾ç‰¹å®šçš„æ¦‚å¿µå®šç¾©
+            // ¦b§ä¨ìªº½s½X¨t²Î¤¤¡A´M§ä¯S©wªº·§©À©w¸q
             var concept = findConceptInCodeSystem(codeSystem, params.code());
             
             return buildLookupResponse(codeSystem, concept, requestedProperties);
@@ -136,19 +176,19 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // ç”¨æ–¼åŒ…è£ POST è«‹æ±‚è§£æçµæœçš„è¨˜éŒ„é¡
+    // ¥Î©ó¥]¸Ë POST ½Ğ¨D¸ÑªRµ²ªGªº°O¿ıÃş
     private record PostParams(NormalizedParams normalizedParams, List<StringType> properties) {}
 
-    // æª¢æŸ¥æ˜¯å¦ç‚º POST è«‹æ±‚
+    // ÀË¬d¬O§_¬° POST ½Ğ¨D
     private boolean isPostRequest(RequestDetails requestDetails) {
         return requestDetails != null && 
                "POST".equalsIgnoreCase(requestDetails.getRequestType().name());
     }
 
-    // å¾ POST è«‹æ±‚ä¸­æå–åƒæ•¸
+    // ±q POST ½Ğ¨D¤¤´£¨ú°Ñ¼Æ
     private PostParams extractParametersFromPost(RequestDetails requestDetails) {
         try {
-            // å¾è«‹æ±‚é«”ä¸­ç²å– Parameters è³‡æº
+            // ±q½Ğ¨DÅé¤¤Àò¨ú Parameters ¸ê·½
             IBaseResource resource = requestDetails.getResource();
             if (!(resource instanceof Parameters)) {
                 throw new InvalidRequestException("POST request must contain a Parameters resource");
@@ -162,7 +202,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // è§£æ Parameters è³‡æº
+    // ¸ÑªR Parameters ¸ê·½
     private PostParams parseParametersResource(Parameters parameters) {
         CodeType code = null;
         UriType system = null;
@@ -209,13 +249,13 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             }
         }
         
-        // é©—è­‰å’Œæ¨™æº–åŒ–åƒæ•¸
+        // ÅçÃÒ©M¼Ğ·Ç¤Æ°Ñ¼Æ
         NormalizedParams normalizedParams = validateAndNormalizeLookupParams(code, system, version, coding);
         
         return new PostParams(normalizedParams, properties.isEmpty() ? null : properties);
     }
 
-    // é©—è­‰å’Œæ¨™æº–åŒ–è¼¸å…¥çš„æŸ¥è©¢åƒæ•¸
+    // ÅçÃÒ©M¼Ğ·Ç¤Æ¿é¤Jªº¬d¸ß°Ñ¼Æ
     private NormalizedParams validateAndNormalizeLookupParams(CodeType code, UriType system, 
                                                              StringType version, Coding coding) {
         if (code == null && coding == null) {
@@ -232,7 +272,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return extractFromParameters(code, system, version);
     }
 
-    // å¾ Coding ç‰©ä»¶ä¸­æå–åƒæ•¸
+    // ±q Coding ª«¥ó¤¤´£¨ú°Ñ¼Æ
     private NormalizedParams extractFromCoding(Coding coding, StringType version) {
         String codeValue = coding.getCode();
         String systemValue = coding.getSystem();
@@ -249,7 +289,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return new NormalizedParams(codeValue, systemValue, versionValue);
     }
 
-    // å¾ç¨ç«‹åƒæ•¸ä¸­æå–
+    // ±q¿W¥ß°Ñ¼Æ¤¤´£¨ú
     private NormalizedParams extractFromParameters(CodeType code, UriType system, StringType version) {
         if (code == null || code.isEmpty()) {
             throw new UnprocessableEntityException("Code parameter is required");
@@ -265,12 +305,12 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         );
     }
 
-    // ä¿®æ”¹ buildLookupResponse æ–¹æ³•ï¼Œèª¿æ•´åƒæ•¸é †åºä»¥ç¬¦åˆé æœŸçµæœ
+    // ­×§ï buildLookupResponse ¤èªk¡A½Õ¾ã°Ñ¼Æ¶¶§Ç¥H²Å¦X¹w´Áµ²ªG
     private Parameters buildLookupResponse(CodeSystem codeSystem, 
                                           ConceptDefinitionComponent concept,
                                           List<StringType> requestedProperties) {
         
-        // é©—è­‰ç‰ˆæœ¬è™Ÿæ˜¯å¦ç¬¦åˆ
+        // ÅçÃÒª©¥»¸¹¬O§_²Å¦X
         if (codeSystem.hasVersion() && requestedProperties != null) {
             String requestedVersion = extractVersionFromProperties(requestedProperties);
             if (requestedVersion != null && !requestedVersion.equals(codeSystem.getVersion())) {
@@ -282,33 +322,33 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         
         var response = new Parameters();
         
-        // æŒ‰ç…§é æœŸçµæœçš„é †åºæ·»åŠ åƒæ•¸
-        // 1. abstractï¼ˆå¦‚æœå­˜åœ¨ï¼‰
+        // «ö·Ó¹w´Áµ²ªGªº¶¶§Ç²K¥[°Ñ¼Æ
+        // 1. abstract¡]¦pªG¦s¦b¡^
         addAbstractParameter(response, concept);
         
-        // 2. code - å¿…è¦
+        // 2. code - ¥²­n
         response.addParameter("code", new CodeType(concept.getCode()));
         
-        // 3. æ·»åŠ  designationsï¼ˆåŒ…æ‹¬æ˜ç¢ºå®šç¾©çš„å’Œè‡ªå‹•ç”¢ç”Ÿçš„ display designationï¼‰
+        // 3. ²K¥[ designations¡]¥]¬A©ú½T©w¸qªº©M¦Û°Ê²£¥Íªº display designation¡^
         addDesignations(response, codeSystem, concept);
         
-        // 4. display - å¦‚æœå­˜åœ¨
+        // 4. display - ¦pªG¦s¦b
         if (concept.hasDisplay()) {
             response.addParameter("display", new StringType(concept.getDisplay()));
         }
         
-        // 5. name - CodeSystem åç¨±
+        // 5. name - CodeSystem ¦WºÙ
         if (codeSystem.hasName()) {
             response.addParameter("name", new StringType(codeSystem.getName()));
         }
         
-        // 6. æ·»åŠ  propertiesï¼ˆæŒ‰ç‰¹å®šé †åºï¼‰
+        // 6. ²K¥[ properties¡]«ö¯S©w¶¶§Ç¡^
         addProperties(response, concept, codeSystem, requestedProperties);
         
-        // 7. system - CodeSystem URLï¼Œå¿…è¦
+        // 7. system - CodeSystem URL¡A¥²­n
         response.addParameter("system", new UriType(codeSystem.getUrl()));
         
-        // 8. version - CodeSystem ç‰ˆæœ¬
+        // 8. version - CodeSystem ª©¥»
         if (codeSystem.hasVersion()) {
             response.addParameter("version", new StringType(codeSystem.getVersion()));
         }
@@ -316,7 +356,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return response;
     }
 
-    // å¾å±¬æ€§åˆ—è¡¨ä¸­æå–ç‰ˆæœ¬ä¿¡æ¯
+    // ±qÄİ©Ê¦Cªí¤¤´£¨úª©¥»«H®§
     private String extractVersionFromProperties(List<StringType> properties) {
         if (properties == null) return null;
         
@@ -327,7 +367,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 .orElse(null);
     }
 
-    // æ·»åŠ  abstract åƒæ•¸
+    // ²K¥[ abstract °Ñ¼Æ
     private void addAbstractParameter(Parameters response, ConceptDefinitionComponent concept) {
         concept.getProperty().stream()
             .filter(prop -> "abstract".equals(prop.getCode()))
@@ -339,23 +379,23 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             });
     }
 
-    // ä¿®æ”¹æŒ‡å®šé …ç›®æ·»åŠ é †åº
+    // ­×§ï«ü©w¶µ¥Ø²K¥[¶¶§Ç
     private void addDesignations(Parameters response, CodeSystem codeSystem, ConceptDefinitionComponent concept) {
-        // å…ˆæ·»åŠ æ˜ç¢ºå®šç¾©çš„ designations
+        // ¥ı²K¥[©ú½T©w¸qªº designations
         concept.getDesignation().forEach(designation -> 
             addDesignationParameter(response, designation));
         
-        // æª¢æŸ¥æ˜¯å¦å·²ç¶“å­˜åœ¨ display é¡å‹çš„ designation
+        // ÀË¬d¬O§_¤w¸g¦s¦b display Ãş«¬ªº designation
         boolean hasDisplayDesignation = concept.getDesignation().stream()
             .anyMatch(d -> d.hasUse() && 
                           "http://terminology.hl7.org/CodeSystem/designation-usage".equals(d.getUse().getSystem()) &&
                           "display".equals(d.getUse().getCode()));
         
-        // åªæœ‰åœ¨æ²’æœ‰ display designation ä¸”æ¦‚å¿µæœ‰ display æ™‚ï¼Œæ‰è‡ªå‹•è£œä¸€å€‹
+        // ¥u¦³¦b¨S¦³ display designation ¥B·§©À¦³ display ®É¡A¤~¦Û°Ê¸É¤@­Ó
         if (!hasDisplayDesignation && concept.hasDisplay()) {
             var param = response.addParameter().setName("designation");
 
-            // èªè¨€ï¼šå…ˆå˜—è©¦ concept extension -> CodeSystem.language -> é è¨­ en
+            // »y¨¥¡G¥ı¹Á¸Õ concept extension -> CodeSystem.language -> ¹w³] en
             String languageCode = null;
             if (concept.hasExtension("http://hl7.org/fhir/StructureDefinition/language")) {
                 languageCode = concept.getExtensionString("http://hl7.org/fhir/StructureDefinition/language");
@@ -364,7 +404,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 if (codeSystem.hasLanguage()) {
                     languageCode = codeSystem.getLanguage();
                 } else {
-                    languageCode = "en"; // é è¨­å€¼
+                    languageCode = "en"; // ¹w³]­È
                 }
             }
 
@@ -383,12 +423,12 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 .setValue(new StringType(concept.getDisplay()));
         }
         
-        // åŸºæ–¼æ“´å±•çš„æŒ‡å®šé …ç›®
+        // °ò©óÂX®iªº«ü©w¶µ¥Ø
         addExtensionAsDesignation(response, concept, ExtensionUrls.CODESYSTEM_ALTERNATE.getUrl(), "alternate");
         addExtensionAsDesignation(response, concept, ExtensionUrls.CODESYSTEM_LABEL.getUrl(), "label");
     }
 
-    // æ·»åŠ æŒ‡å®šé …ç›®åƒæ•¸
+    // ²K¥[«ü©w¶µ¥Ø°Ñ¼Æ
     private void addDesignationParameter(Parameters response, ConceptDefinitionDesignationComponent designation) {
         var param = response.addParameter().setName("designation");
         
@@ -409,7 +449,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             .setValue(new StringType(designation.getValue()));
     }
 
-    // å°‡æ“´å±•ä½œç‚ºæŒ‡å®šé …ç›®æ·»åŠ 
+    // ±NÂX®i§@¬°«ü©w¶µ¥Ø²K¥[
     private void addExtensionAsDesignation(Parameters response, ConceptDefinitionComponent concept,
                                          String extensionUrl, String useCode) {
         concept.getExtensionsByUrl(extensionUrl).forEach(ext -> {
@@ -423,12 +463,12 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         });
     }
 
-    // ä¿®æ”¹å±¬æ€§æ·»åŠ é †åºï¼Œç¢ºä¿æŒ‰ç…§é æœŸçµæœçš„é †åº
+    // ­×§ïÄİ©Ê²K¥[¶¶§Ç¡A½T«O«ö·Ó¹w´Áµ²ªGªº¶¶§Ç
     private void addProperties(Parameters response, ConceptDefinitionComponent concept,
                              CodeSystem codeSystem, List<StringType> requestedProperties) {
         var requestedCodes = getRequestedPropertyCodes(requestedProperties);
         
-        // æŒ‰ç…§é æœŸçµæœçš„é †åºæ·»åŠ å±¬æ€§ï¼š
+        // «ö·Ó¹w´Áµ²ªGªº¶¶§Ç²K¥[Äİ©Ê¡G
         // 1. child properties
         addChildConceptProperties(response, concept, requestedCodes);
         
@@ -441,17 +481,17 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         // 4. parent properties
         addParentConceptProperties(response, concept, codeSystem, requestedCodes);
         
-        // 5. å…¶ä»–æ¨™æº–å±¬æ€§ï¼ˆé™¤äº†å·²è™•ç†çš„ definition, inactive, child, parentï¼‰
+        // 5. ¨ä¥L¼Ğ·ÇÄİ©Ê¡]°£¤F¤w³B²zªº definition, inactive, child, parent¡^
         addOtherStandardProperties(response, concept, requestedCodes);
         
-        // 6. åŸºæ–¼æ“´å±•çš„å±¬æ€§
+        // 6. °ò©óÂX®iªºÄİ©Ê
         addPropertiesFromExtensions(response, concept, codeSystem, requestedCodes);
     }
 
-    // ç²å–è«‹æ±‚çš„å±¬æ€§ä»£ç¢¼é›†åˆ - æ”¯æ´è¬ç”¨å­—å…ƒ "*"
+    // Àò¨ú½Ğ¨DªºÄİ©Ê¥N½X¶°¦X - ¤ä´©¸U¥Î¦r¤¸ "*"
     private Set<String> getRequestedPropertyCodes(List<StringType> requestedProperties) {
         if (requestedProperties == null || requestedProperties.isEmpty()) {
-            return Collections.emptySet(); // è¿”å›æ‰€æœ‰å±¬æ€§
+            return Collections.emptySet(); // ªğ¦^©Ò¦³Äİ©Ê
         }
         
         Set<String> codes = new HashSet<>();
@@ -459,7 +499,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             String value = property.getValue();
             
             if ("*".equals(value)) {
-                return Collections.emptySet(); // "*" è¡¨ç¤ºè¿”å›æ‰€æœ‰å±¬æ€§
+                return Collections.emptySet(); // "*" ªí¥Üªğ¦^©Ò¦³Äİ©Ê
             }
             if (value != null) {
                 codes.add(value);
@@ -468,21 +508,21 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return codes;
     }
 
-    // å–®ç¨è™•ç† definition å±¬æ€§
+    // ³æ¿W³B²z definition Äİ©Ê
     private void addDefinitionProperty(Parameters response, ConceptDefinitionComponent concept, 
                                      Set<String> requestedCodes) {
         if (requestedCodes.isEmpty() || requestedCodes.contains("definition")) {
-            // æª¢æŸ¥æ˜¯å¦æœ‰æ˜ç¢ºçš„ definition å±¬æ€§
+            // ÀË¬d¬O§_¦³©ú½Tªº definition Äİ©Ê
             boolean hasDefinitionProperty = concept.getProperty().stream()
                 .anyMatch(prop -> "definition".equals(prop.getCode()));
             
             if (hasDefinitionProperty) {
-                // ä½¿ç”¨æ˜ç¢ºå®šç¾©çš„ definition å±¬æ€§
+                // ¨Ï¥Î©ú½T©w¸qªº definition Äİ©Ê
                 concept.getProperty().stream()
                     .filter(prop -> "definition".equals(prop.getCode()))
                     .forEach(prop -> addPropertyParameter(response, prop, concept, "definition"));
             } else if (concept.hasDefinition()) {
-                // å¦‚æœæ²’æœ‰æ˜ç¢ºçš„ definition å±¬æ€§ä½†æ¦‚å¿µæœ‰å®šç¾©ï¼Œå‰‡æ·»åŠ 
+                // ¦pªG¨S¦³©ú½Tªº definition Äİ©Ê¦ı·§©À¦³©w¸q¡A«h²K¥[
                 var param = response.addParameter().setName("property");
                 param.addPart()
                      .setName("code")
@@ -494,7 +534,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // å–®ç¨è™•ç† inactive å±¬æ€§
+    // ³æ¿W³B²z inactive Äİ©Ê
     private void addInactiveProperty(Parameters response, ConceptDefinitionComponent concept, 
                                    Set<String> requestedCodes) {
         if (requestedCodes.isEmpty() || requestedCodes.contains("inactive")) {
@@ -504,21 +544,21 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 .anyMatch(prop -> "status".equals(prop.getCode()));
             
             if (hasInactive) {
-                // ä½¿ç”¨æ˜ç¢ºå®šç¾©çš„ inactive å±¬æ€§
+                // ¨Ï¥Î©ú½T©w¸qªº inactive Äİ©Ê
                 concept.getProperty().stream()
                     .filter(prop -> "inactive".equals(prop.getCode()))
                     .forEach(prop -> addPropertyParameter(response, prop, concept, "inactive"));
             } else if (hasStatus) {
-                // æ ¹æ“š status æ¨å° inactive
+                // ®Ú¾Ú status ±À¾É inactive
                 addInactivePropertyFromStatus(response, concept);
             } else {
-                // æ·»åŠ é è¨­çš„ inactive å±¬æ€§
+                // ²K¥[¹w³]ªº inactive Äİ©Ê
                 addDefaultInactiveProperty(response);
             }
         }
     }
 
-    // æ·»åŠ å…¶ä»–æ¨™æº–å±¬æ€§ï¼ˆæ’é™¤å·²è™•ç†çš„ï¼‰
+    // ²K¥[¨ä¥L¼Ğ·ÇÄİ©Ê¡]±Æ°£¤w³B²zªº¡^
     private void addOtherStandardProperties(Parameters response, ConceptDefinitionComponent concept, 
                                           Set<String> requestedCodes) {
         Set<String> processedProperties = Set.of("abstract", "definition", "inactive", "child", "parent");
@@ -526,7 +566,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         concept.getProperty().forEach(prop -> {
             String code = prop.getCode();
             
-            // è·³éå·²ç¶“è™•ç†éçš„å±¬æ€§
+            // ¸õ¹L¤w¸g³B²z¹LªºÄİ©Ê
             if (!processedProperties.contains(code) && 
                 (requestedCodes.isEmpty() || requestedCodes.contains(code))) {
                 addPropertyParameter(response, prop, concept, code);
@@ -534,7 +574,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         });
     }
 
-    // æ·»åŠ å­æ¦‚å¿µå±¬æ€§
+    // ²K¥[¤l·§©ÀÄİ©Ê
     private void addChildConceptProperties(Parameters response, ConceptDefinitionComponent concept, 
                                          Set<String> requestedCodes) {
         if (concept.hasConcept() && !concept.getConcept().isEmpty() && 
@@ -547,7 +587,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     .setName("code")
                     .setValue(new CodeType("child"));
 
-                // æ·»åŠ æè¿°ï¼ˆå¦‚æœå­æ¦‚å¿µæœ‰ displayï¼‰
+                // ²K¥[´y­z¡]¦pªG¤l·§©À¦³ display¡^
                 if (childConcept.hasDisplay()) {
                     param.addPart()
                         .setName("description")
@@ -561,15 +601,15 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // æ·»åŠ çˆ¶æ¦‚å¿µå±¬æ€§
+    // ²K¥[¤÷·§©ÀÄİ©Ê
     private void addParentConceptProperties(Parameters response, ConceptDefinitionComponent concept, 
     		                                CodeSystem codeSystem, Set<String> requestedCodes) {
         if (requestedCodes.isEmpty() || requestedCodes.contains("parent")) {
-        	// é¦–å…ˆæª¢æŸ¥æ¦‚å¿µæœ¬èº«æ˜¯å¦æœ‰ parent å±¬æ€§ï¼ˆæ˜ç¢ºå®šç¾©çš„çˆ¶æ¦‚å¿µï¼‰
+        	// ­º¥ıÀË¬d·§©À¥»¨­¬O§_¦³ parent Äİ©Ê¡]©ú½T©w¸qªº¤÷·§©À¡^
         	concept.getProperty().stream()
                 .filter(prop -> "parent".equals(prop.getCode()))
                 .forEach(prop -> {
-                	// å˜—è©¦æ‰¾åˆ°çˆ¶æ¦‚å¿µçš„ display è³‡è¨Š
+                	// ¹Á¸Õ§ä¨ì¤÷·§©Àªº display ¸ê°T
                     String parentCode = null;
                     if (prop.getValue() instanceof CodeType) {
                         parentCode = ((CodeType) prop.getValue()).getValue();
@@ -582,7 +622,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                         parentDisplay = findConceptDisplay(codeSystem, parentCode);
                     }
                 	
-                	//å¯«å…¥property
+                	//¼g¤Jproperty
                 	var param = response.addParameter().setName("property");
                     
                     param.addPart()
@@ -600,30 +640,30 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                         .setValue(prop.getValue());
                 });
         	
-        	// å¦‚æœæ²’æœ‰æ˜ç¢ºçš„ parent å±¬æ€§ï¼Œå‰‡é€éå±¤ç´šçµæ§‹æŸ¥æ‰¾çˆ¶æ¦‚å¿µ
+        	// ¦pªG¨S¦³©ú½Tªº parent Äİ©Ê¡A«h³z¹L¼h¯Åµ²ºc¬d§ä¤÷·§©À
             if (concept.getProperty().stream().noneMatch(prop -> "parent".equals(prop.getCode()))) {
                 findParentConceptsInHierarchy(response, concept, codeSystem);
             }
         }
     }
 
-    // æ·»åŠ å±¬æ€§åƒæ•¸
+    // ²K¥[Äİ©Ê°Ñ¼Æ
     private void addPropertyParameter(Parameters response, ConceptPropertyComponent prop, 
                                     ConceptDefinitionComponent concept, String code) {
         var param = response.addParameter().setName("property");
         
-        // code éƒ¨åˆ†
+        // code ³¡¤À
         param.addPart()
              .setName("code")
              .setValue(new CodeType(prop.getCode()));
         
-        // value éƒ¨åˆ†
+        // value ³¡¤À
         param.addPart()
              .setName("value")
              .setValue(prop.getValue());
     }
 
-    // æ ¹æ“š status å±¬æ€§æ¨å° inactive å±¬æ€§
+    // ®Ú¾Ú status Äİ©Ê±À¾É inactive Äİ©Ê
     private void addInactivePropertyFromStatus(Parameters response, ConceptDefinitionComponent concept) {
         Optional<ConceptPropertyComponent> statusProp = concept.getProperty().stream()
             .filter(prop -> "status".equals(prop.getCode()))
@@ -633,22 +673,22 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             var statusValue = statusProp.get().getValue();
             boolean isInactive = false;
             
-            // åˆ¤æ–· status å€¼ä¾†æ±ºå®š inactive ç‹€æ…‹
+            // §PÂ_ status ­È¨Ó¨M©w inactive ª¬ºA
             if (statusValue instanceof CodeType) {
                 String statusCode = ((CodeType) statusValue).getValue();
-                // retired, deprecated, withdrawn ç­‰ç‹€æ…‹è¦–ç‚º inactive
+                // retired, deprecated, withdrawn µ¥ª¬ºAµø¬° inactive
                 isInactive = "retired".equals(statusCode) || 
                             "deprecated".equals(statusCode) || 
                             "withdrawn".equals(statusCode);
             } else if (statusValue instanceof StringType) {
                 String statusString = ((StringType) statusValue).getValue();
-                // ä¹Ÿæ”¯æ´ StringType çš„æƒ…æ³
+                // ¤]¤ä´© StringType ªº±¡ªp
                 isInactive = "retired".equals(statusString) || 
                             "deprecated".equals(statusString) || 
                             "withdrawn".equals(statusString);
             }
             
-            // æ·»åŠ æ¨å°çš„ inactive å±¬æ€§
+            // ²K¥[±À¾Éªº inactive Äİ©Ê
             var param = response.addParameter().setName("property");
             param.addPart()
                 .setName("code")
@@ -659,7 +699,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
 
-    // æ·»åŠ é è¨­çš„ inactive å±¬æ€§
+    // ²K¥[¹w³]ªº inactive Äİ©Ê
     private void addDefaultInactiveProperty(Parameters response) {
         var param = response.addParameter().setName("property");
         param.addPart()
@@ -670,19 +710,19 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             .setValue(new BooleanType(false));
     }
 
-    // æ ¹æ“šä»£ç¢¼æŸ¥æ‰¾æ¦‚å¿µçš„ display
+    // ®Ú¾Ú¥N½X¬d§ä·§©Àªº display
     private String findConceptDisplay(CodeSystem codeSystem, String code) {
         return findConceptDisplayInList(codeSystem.getConcept(), code);
     }
 
-    // éè¿´åœ¨æ¦‚å¿µæ¸…å–®ä¸­æŸ¥æ‰¾æŒ‡å®šä»£ç¢¼çš„ display
+    // »¼°j¦b·§©À²M³æ¤¤¬d§ä«ü©w¥N½Xªº display
     private String findConceptDisplayInList(List<ConceptDefinitionComponent> concepts, String code) {
         for (ConceptDefinitionComponent concept : concepts) {
             if (code.equals(concept.getCode())) {
                 return concept.getDisplay();
             }
             
-            // éè¿´æœå°‹å­æ¦‚å¿µ
+            // »¼°j·j´M¤l·§©À
             String display = findConceptDisplayInList(concept.getConcept(), code);
             if (display != null) {
                 return display;
@@ -691,31 +731,31 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return null;
     }
 
-    // åœ¨å±¤ç´šçµæ§‹ä¸­æŸ¥æ‰¾çˆ¶æ¦‚å¿µ
+    // ¦b¼h¯Åµ²ºc¤¤¬d§ä¤÷·§©À
     private void findParentConceptsInHierarchy(Parameters response, ConceptDefinitionComponent targetConcept, 
                                              CodeSystem codeSystem) {
         String targetCode = targetConcept.getCode();
         
-        // éæ­· CodeSystem çš„æ‰€æœ‰é ‚å±¤æ¦‚å¿µ
+        // ¹M¾ú CodeSystem ªº©Ò¦³³»¼h·§©À
         for (ConceptDefinitionComponent rootConcept : codeSystem.getConcept()) {
             ConceptDefinitionComponent parent = findParentInConcept(rootConcept, targetCode, null);
             if (parent != null) {
                 addParentPropertyParameter(response, parent);
-                break; // æ‰¾åˆ°çˆ¶æ¦‚å¿µå¾Œé€€å‡º
+                break; // §ä¨ì¤÷·§©À«á°h¥X
             }
         }
     }
 
-    // éè¿´æŸ¥æ‰¾æŒ‡å®šä»£ç¢¼çš„çˆ¶æ¦‚å¿µ
+    // »¼°j¬d§ä«ü©w¥N½Xªº¤÷·§©À
     private ConceptDefinitionComponent findParentInConcept(ConceptDefinitionComponent currentConcept, 
                                                          String targetCode, 
                                                          ConceptDefinitionComponent potentialParent) {
-        // å¦‚æœç›®å‰æ¦‚å¿µå°±æ˜¯ç›®æ¨™æ¦‚å¿µï¼Œå›å‚³å…¶çˆ¶æ¦‚å¿µ
+        // ¦pªG¥Ø«e·§©À´N¬O¥Ø¼Ğ·§©À¡A¦^¶Ç¨ä¤÷·§©À
         if (targetCode.equals(currentConcept.getCode())) {
             return potentialParent;
         }
         
-        // éè¿´æœå°‹å­æ¦‚å¿µ
+        // »¼°j·j´M¤l·§©À
         for (ConceptDefinitionComponent childConcept : currentConcept.getConcept()) {
             ConceptDefinitionComponent parent = findParentInConcept(childConcept, targetCode, currentConcept);
             if (parent != null) {
@@ -726,7 +766,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return null;
     }
 
-    // æ–°å¢çˆ¶æ¦‚å¿µå±¬æ€§åƒæ•¸
+    // ·s¼W¤÷·§©ÀÄİ©Ê°Ñ¼Æ
     private void addParentPropertyParameter(Parameters response, ConceptDefinitionComponent parentConcept) {
         var param = response.addParameter().setName("property");
         
@@ -734,7 +774,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             .setName("code")
             .setValue(new CodeType("parent"));
         
-        // æ–°å¢çˆ¶æ¦‚å¿µçš„ display ä½œç‚ºæè¿°
+        // ·s¼W¤÷·§©Àªº display §@¬°´y­z
         if (parentConcept.hasDisplay()) {
             param.addPart()
                 .setName("description")
@@ -746,11 +786,11 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             .setValue(new CodeType(parentConcept.getCode()));
     }
 
-    // å¾æ“´å±•ä¸­æ·»åŠ å±¬æ€§
+    // ±qÂX®i¤¤²K¥[Äİ©Ê
     private void addPropertiesFromExtensions(Parameters response, ConceptDefinitionComponent concept,
                                            CodeSystem codeSystem, Set<String> requestedCodes) {
         
-        // å®šç¾©æ“´å±• URL èˆ‡å±¬æ€§ä»£ç¢¼çš„æ˜ å°„é—œä¿‚
+        // ©w¸qÂX®i URL »PÄİ©Ê¥N½Xªº¬M®gÃö«Y
         var extensionMappings = Map.of(
             ExtensionUrls.CODESYSTEM_CONCEPT_ORDER.getUrl(), "conceptOrder",
             ExtensionUrls.ITEM_WEIGHT.getUrl(), "itemWeight",
@@ -758,21 +798,21 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             ExtensionUrls.RENDERING_XHTML.getUrl(), "renderingXhtml"
         );
         
-        // éæ­·æ‰€æœ‰çš„æ“´å±•æ˜ å°„
+        // ¹M¾ú©Ò¦³ªºÂX®i¬M®g
         extensionMappings.forEach((extensionUrl, propertyCode) -> {
             if (requestedCodes.isEmpty() || requestedCodes.contains(propertyCode)) {
                 addExtensionAsProperty(response, concept, extensionUrl, propertyCode);
             }
         });
         
-        // ç‰¹æ®Šè™•ç† SNOMED CT ä»£ç¢¼ç³»çµ±çš„æè¿° ID
+        // ¯S®í³B²z SNOMED CT ¥N½X¨t²Îªº´y­z ID
         if (isSnomedCT(codeSystem.getUrl()) && 
             (requestedCodes.isEmpty() || requestedCodes.contains("sctDescId"))) {
             addExtensionAsProperty(response, concept, ExtensionUrls.CODING_SCTDESCID.getUrl(), "sctDescId");
         }
     }
 
-    // å°‡æ“´å±•ä½œç‚ºå±¬æ€§æ·»åŠ 
+    // ±NÂX®i§@¬°Äİ©Ê²K¥[
     private void addExtensionAsProperty(Parameters response, ConceptDefinitionComponent concept,
                                       String extensionUrl, String propertyCode) {
         Optional.ofNullable(concept.getExtensionByUrl(extensionUrl))
@@ -790,219 +830,417 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             });
     }
 
-    // $validate-code Operation
+ // $validate-code Operation for CodeSystem only
     @Operation(name = "$validate-code", idempotent = true)
     public Parameters validateCode(
             @IdParam(optional = true) IdType resourceId,
             @OperationParam(name = "code") CodeType code,
             @OperationParam(name = "system") UriType system,
+            @OperationParam(name = "url") UriType url,
             @OperationParam(name = "version") StringType version,
             @OperationParam(name = "display") StringType display,
             @OperationParam(name = "coding") Coding coding,
             @OperationParam(name = "codeableConcept") CodeableConcept codeableConcept,
-            @OperationParam(name = "valueSet") ValueSet valueSet,
-            @OperationParam(name = "url") UriType valueSetUrl,
-            @OperationParam(name = "valueSetVersion") StringType valueSetVersion,
             @OperationParam(name = "displayLanguage") CodeType displayLanguage
     ) {
-    	 try {
-    	        var paramsList = extractMultipleValidationParams(code, system, display, coding, codeableConcept);
-    	        boolean anyValid = false;
-    	        ConceptDefinitionComponent matchedConcept = null;
-    	        CodeSystem matchedCodeSystem = null;
+        try {
+        	// ¨Ï¥Î url °Ñ¼ÆÀu¥ı©ó system °Ñ¼Æ
+            UriType effectiveSystem = url != null ? url : system;
+            
+            var paramsList = extractMultipleValidationParams(code, effectiveSystem, display, coding, codeableConcept);
+            boolean anyValid = false;
+            ConceptDefinitionComponent matchedConcept = null;
+            CodeSystem matchedCodeSystem = null;
+            ValidationContext failedValidationContext = null;
 
-    	        for (var params : paramsList) {
-    	            validateValidationParams(params.code(), params.system(), resourceId);
 
-    	            // Step 1: ValueSet é©—è­‰
-    	            if (valueSet != null || valueSetUrl != null) {
-    	                if (isCodeInValueSet(params.code().getValue(), params.system().getValue(), valueSet, valueSetUrl, valueSetVersion)) {
-    	                    anyValid = true;
-    	                    break;
-    	                }
-    	            }
+            for (var params : paramsList) {
+                validateValidationParams(params.code(), params.system(), resourceId);
 
-    	            // Step 2: æ‰¾ CodeSystem ä¸¦æª¢æŸ¥ code
-    	            var codeSystem = findCodeSystemForValidation(resourceId, params, version);
-    	            var concept = findConceptRecursive(codeSystem.getConcept(), params.code().getValue());
+             // §ä CodeSystem ¨ÃÀË¬d code - ­×§ï¥H«O¯d CodeSystem ¤Ş¥Î
+                CodeSystem codeSystem = null;
+                try {
+                    codeSystem = findCodeSystemForValidation(resourceId, params, version);
+                    var concept = findConceptRecursive(codeSystem.getConcept(), params.code().getValue());
 
-    	            if (concept != null) {
-    	                matchedConcept = concept;
-    	                matchedCodeSystem = codeSystem;
+                    if (concept != null) {
+                        matchedConcept = concept;
+                        matchedCodeSystem = codeSystem;
 
-    	                boolean isValidDisplay = isDisplayValidExtended(concept, params.display(), displayLanguage);
-    	                if (isValidDisplay) {
-    	                    anyValid = true;
-    	                    break;
-    	                }
-    	            }
-    	        }
+                        boolean isValidDisplay = isDisplayValidExtended(concept, params.display(), displayLanguage);
+                        if (isValidDisplay) {
+                            anyValid = true;
+                            break;
+                        } else {
+                            // «O¦s¥¢±ÑªºÅçÃÒ¤W¤U¤å¡A¥]§t display ¿ù»~«H®§
+                            failedValidationContext = new ValidationContext(
+                                params.parameterSource(), 
+                                params.code(), 
+                                params.system(), 
+                                params.display(),
+                                ValidationErrorType.INVALID_DISPLAY
+                            );
+                        }
+                    } else {
+                        // «O¦s¥¢±ÑªºÅçÃÒ¤W¤U¤å¡A¥]§t code ¿ù»~«H®§
+                        failedValidationContext = new ValidationContext(
+                            params.parameterSource(), 
+                            params.code(), 
+                            params.system(), 
+                            params.display(),
+                            ValidationErrorType.INVALID_CODE
+                        );
+                        matchedCodeSystem = codeSystem;
+                    }
+                } catch (ResourceNotFoundException e) {
+                    // CodeSystem ¤£¦s¦bªº±¡ªp
+                    failedValidationContext = new ValidationContext(
+                        params.parameterSource(), 
+                        params.code(), 
+                        params.system(), 
+                        params.display(),
+                        ValidationErrorType.SYSTEM_NOT_FOUND
+                    );
+                }
+            }
 
-    	        if (!anyValid) {
-    	            return buildValidationErrorWithOutcome(false, code, system,
-    	                    "Code not found in specified CodeSystem/ValueSet");
-    	        }
+            if (!anyValid) {
+                return buildValidationErrorWithOutcome(false, failedValidationContext, 
+                        matchedCodeSystem, "Code validation failed");
+            }
 
-    	        // Step 3: æº–å‚™é¡¯ç¤ºåç¨±
-    	        String resolvedDisplay = getDisplayForLanguage(matchedConcept, displayLanguage);
+            // «Ø¥ß¦¨¥\¦^À³ - ­×§ï¦¹³¡¤À¥H²Å¦X´Á±æ¿é¥X®æ¦¡
+            Parameters result = new Parameters();
+            
+            // ²K¥[°ò¥»°Ñ¼Æ
+            if (code != null) {
+                result.addParameter("code", code);
+            }
 
-    	        // Step 4: å»ºç«‹æˆåŠŸå›æ‡‰
-    	        String message = "Code validation successful";
-    	        if (display != null && !display.isEmpty() &&
-    	                !display.getValue().equalsIgnoreCase(resolvedDisplay)) {
-    	            message = String.format("Code is valid but display '%s' does not match expected '%s'",
-    	                    display.getValue(), resolvedDisplay);
-    	        }
+            // ·Ç³ÆÅã¥Ü¦WºÙ
+            String resolvedDisplay = getDisplayForLanguage(matchedConcept, displayLanguage);
+            if (resolvedDisplay != null) {
+                result.addParameter("display", new StringType(resolvedDisplay));
+            }
+            
+            result.addParameter("result", new BooleanType(true));
+            
+            // ¨Ï¥Î¦³®Äªº system URL
+            if (effectiveSystem != null) {
+                result.addParameter("system", effectiveSystem);
+            }
+            
+            // ²K¥[ª©¥»«H®§
+            if (matchedCodeSystem != null && matchedCodeSystem.hasVersion()) {
+                result.addParameter("version", new StringType(matchedCodeSystem.getVersion()));
+            }
 
-    	        Parameters result = buildValidationResultWithExtensions(
-    	                true, code, system, matchedCodeSystem, matchedConcept, message);
+            return result;
 
-    	        if (displayLanguage != null && resolvedDisplay != null) {
-    	            result.addParameter("display", new StringType(resolvedDisplay));
-    	        }
-
-    	        return result;
-
-    	    } catch (InvalidRequestException | ResourceNotFoundException e) {
-    	        return buildValidationErrorWithOutcome(false, code, system, e.getMessage());
-    	    } catch (Exception e) {
-    	        return buildValidationErrorWithOutcome(false, code, system, "Internal error: " + e.getMessage());
-    	    }
-    	}
-    
-	    //æ”¯æ´å¤§å°å¯«å¿½ç•¥èˆ‡ designation æ¯”å°
-	    private boolean isDisplayValidExtended(ConceptDefinitionComponent concept, StringType display, CodeType displayLanguage) {
-	        if (display == null || display.isEmpty()) {
-	            return true; // æ²’å‚³ display å°±ç›´æ¥ pass
-	        }
-	
-	        String expected = getDisplayForLanguage(concept, displayLanguage);
-	        if (expected != null && display.getValue().equalsIgnoreCase(expected)) {
-	            return true;
-	        }
-	
-	        // æª¢æŸ¥ designation
-	        for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
-	            if (display.getValue().equalsIgnoreCase(desig.getValue())) {
-	                return true;
-	            }
-	        }
-	        return false;
-	    }
-	
-	    //å¯ä»¥ç”¨ Terminology Service $expand å–å¾—æ‰€æœ‰ code å†æª¢æŸ¥
-	    private boolean isCodeInValueSet(String code, String system, ValueSet valueSet,
-	                                     UriType valueSetUrl, StringType valueSetVersion) {
-	        ValueSet expanded = valueSet;
-	        if (expanded == null && valueSetUrl != null) {
-	            expanded = expandValueSet(valueSetUrl.getValue(),
-	                    valueSetVersion != null ? valueSetVersion.getValue() : null);
-	        }
-	        if (expanded == null) return false;
-	
-	        for (ValueSet.ConceptSetComponent include : expanded.getCompose().getInclude()) {
-	            if (system != null && !system.equals(include.getSystem())) continue;
-	            for (ValueSet.ConceptReferenceComponent concept : include.getConcept()) {
-	                if (concept.getCode().equals(code)) return true;
-	            }
-	        }
-	        return false;
-	    }
-	    
-	    //é€™è£¡æ¨¡æ“¬ Terminology Server $expandï¼ˆå¯¦éš›ä¸Šæ‡‰å‘¼å«æœå‹™æˆ– DAOï¼‰
-	    private ValueSet expandValueSet(String url, String version) {
-	        // TODO: å‘¼å« $expand æˆ–æœ¬åœ°å¿«å–
-	        return null;
-	    }
-	
-	    //å¤±æ•—å›æ‡‰åŠ  OperationOutcome
-	    private Parameters buildValidationErrorWithOutcome(boolean isValid, CodeType code, UriType system, String message) {
-	        Parameters result = new Parameters();
-	        result.addParameter("result", new BooleanType(isValid));
-	        result.addParameter("message", new StringType(message));
-	
-	        OperationOutcome outcome = new OperationOutcome();
-	        outcome.addIssue()
-	                .setSeverity(OperationOutcome.IssueSeverity.ERROR)
-	                .setCode(OperationOutcome.IssueType.CODEINVALID)
-	                .setDetails(new CodeableConcept().setText(message));
-	
-	        result.addParameter().setName("issues").setResource(outcome);
-	        return result;
-	    }
-
-    
-    private List<ValidationParams> extractMultipleValidationParams(CodeType code, UriType system, StringType display,
-            Coding coding, CodeableConcept codeableConcept) {
-		List<ValidationParams> paramsList = new ArrayList<>();
-		
-		if (coding != null) {
-			paramsList.add(new ValidationParams(coding.getCodeElement(), coding.getSystemElement(), coding.getDisplayElement()));
-		}
-		
-		if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()) {
-			for (Coding c : codeableConcept.getCoding()) {
-				paramsList.add(new ValidationParams(c.getCodeElement(), c.getSystemElement(), c.getDisplayElement()));
-			}
-		}
-		
-		if (code != null) {
-			paramsList.add(new ValidationParams(code, system, display));
-		}
-		
-			return paramsList;
-		}
-		
-		private String getDisplayForLanguage(ConceptDefinitionComponent concept, CodeType displayLanguage) {
-			if (displayLanguage == null || concept == null) {
-				return concept != null ? concept.getDisplay() : null;
-		}
-		String lang = displayLanguage.getValue();
-			for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
-				if (lang.equalsIgnoreCase(desig.getLanguage())) {
-					return desig.getValue();
-				}
-		}
-			return concept.getDisplay();
-		}
-		    
-    private ValidationParams extractValidationParams(CodeType code, UriType system, StringType display,
-                                                   Coding coding, CodeableConcept codeableConcept) {
-        if (coding != null) {
-            return new ValidationParams(
-                coding.getCodeElement(), 
-                coding.getSystemElement(), 
-                coding.getDisplayElement()
+        } catch (InvalidRequestException | ResourceNotFoundException e) {
+            // ¹ï©ó¤@¯ë©Ê¿ù»~¡A³Ğ«Ø°ò¥»ªºÅçÃÒ¤W¤U¤å
+            ValidationContext errorContext = new ValidationContext(
+                "code", code, url != null ? url : system, display, ValidationErrorType.GENERAL_ERROR
             );
-        } 
-        
-        if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()) {
-            var firstCoding = codeableConcept.getCodingFirstRep();
-            return new ValidationParams(
-                firstCoding.getCodeElement(), 
-                firstCoding.getSystemElement(), 
-                firstCoding.getDisplayElement()
+            return buildValidationErrorWithOutcome(false, errorContext, null, e.getMessage());
+        } catch (Exception e) {
+            ValidationContext errorContext = new ValidationContext(
+                "code", code, url != null ? url : system, display, ValidationErrorType.INTERNAL_ERROR
             );
+            return buildValidationErrorWithOutcome(false, errorContext, null, "Internal error: " + e.getMessage());
         }
-        
-        return new ValidationParams(code, system, display);
     }
     
-    private void validateValidationParams(CodeType code, UriType system, IdType resourceId) {
+    // ·s¼WÅçÃÒ¤W¤U¤å°O¿ıÃş
+    private record ValidationContext(
+        String parameterSource,
+        CodeType code, 
+        UriType system, 
+        StringType display,
+        ValidationErrorType errorType
+    ) {}
+
+    // ¿ù»~Ãş«¬ªTÁ|
+    private enum ValidationErrorType {
+        INVALID_CODE,
+        INVALID_DISPLAY, 
+        SYSTEM_NOT_FOUND,
+        GENERAL_ERROR,
+        INTERNAL_ERROR
+    }
+
+    // ­×§ï«áªº ValidationParams °O¿ı¡A¼W¥[°Ñ¼Æ¨Ó·½«H®§
+    private record ValidationParams(
+        CodeType code, 
+        UriType system, 
+        StringType display,
+        String parameterSource  // ·s¼W¡G°O¿ı°Ñ¼Æ¨Ó·½
+    ) {}
+    
+    // ­×§ïÅçÃÒ°Ñ¼Æ¤èªk¥H¤ä«ù url °Ñ¼Æ
+    private void validateValidationParams(CodeType code, UriType systemOrUrl, IdType resourceId) {
         if (code == null || code.isEmpty()) {
             throw new InvalidRequestException("Parameter 'code' is required");
         }
-        if (system == null && resourceId == null) {
-            throw new InvalidRequestException("Either 'system' parameter or resource ID must be provided");
+        if (systemOrUrl == null && resourceId == null) {
+            throw new InvalidRequestException("Either 'system'/'url' parameter or resource ID must be provided");
         }
     }
-    
+
+    // ­×§ï CodeSystem ¬d§ä¤èªk¥H¨Ï¥Î url °Ñ¼Æ
     private CodeSystem findCodeSystemForValidation(IdType resourceId, ValidationParams params, StringType version) {
         if (resourceId != null) {
             return getCodeSystemById(resourceId.getIdPart(), version);
         }
         return findCodeSystemByUrl(params.system().getValue(), version != null ? version.getValue() : null);
     }
+    
+    //¤ä´©¤j¤p¼g©¿²¤»P designation ¤ñ¹ï
+    private boolean isDisplayValidExtended(ConceptDefinitionComponent concept, StringType display, CodeType displayLanguage) {
+        if (display == null || display.isEmpty()) {
+            return true; // ¨S¶Ç display ´Nª½±µ pass
+        }
+
+        String expected = getDisplayForLanguage(concept, displayLanguage);
+        if (expected != null && display.getValue().equalsIgnoreCase(expected)) {
+            return true;
+        }
+
+        // ÀË¬d designation
+        for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
+            if (display.getValue().equalsIgnoreCase(desig.getValue())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //¥¢±Ñ¦^À³¥[ OperationOutcome
+    private Parameters buildValidationErrorWithOutcome(boolean isValid, ValidationContext context, 
+            CodeSystem codeSystem, String errorMessage) {
+			Parameters result = new Parameters();
+			
+			// ²K¥[°ò¥»°Ñ¼Æ
+			if (context.code() != null) {
+			result.addParameter("code", context.code());
+			}
+			
+			// ®Ú¾Ú¿ù»~Ãş«¬«Ø¥ß¸Ô²Ó°T®§
+			String detailedMessage = buildDetailedErrorMessage(context, codeSystem, errorMessage);
+			
+			// «Ø¥ß OperationOutcome
+			OperationOutcome outcome = new OperationOutcome();
+			var issue = outcome.addIssue();
+			
+			// ³]©w°ò¥» issue Äİ©Ê
+			issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+			issue.setCode(getIssueTypeForError(context.errorType()));
+			
+			// ²K¥[¾A·íªºÂX®i
+			issue.addExtension(new Extension(
+			"http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id",
+			new StringType(getMessageIdForError(context.errorType()))
+			));
+			
+			// ³]©w details
+			CodeableConcept details = new CodeableConcept();
+			details.addCoding(new Coding(
+			"http://hl7.org/fhir/tools/CodeSystem/tx-issue-type",
+			getDetailCodeForError(context.errorType()),
+			null
+			));
+			details.setText(detailedMessage);
+			issue.setDetails(details);
+			
+			// ³]©w°ÊºAªº location ©M expression
+			setLocationAndExpression(issue, context);
+			
+			// ²K¥[ issues °Ñ¼Æ
+			result.addParameter().setName("issues").setResource(outcome);
+			
+			// ²K¥[ message °Ñ¼Æ
+			result.addParameter("message", new StringType(detailedMessage));
+			
+			// ²K¥[ result °Ñ¼Æ
+			result.addParameter("result", new BooleanType(isValid));
+			
+			// ²K¥[ system °Ñ¼Æ
+			if (context.system() != null) {
+			result.addParameter("system", context.system());
+			}
+			
+			return result;
+			}
+
+    private void setLocationAndExpression(OperationOutcome.OperationOutcomeIssueComponent issue, ValidationContext context) {
+        switch (context.errorType()) {
+            case INVALID_CODE:
+                if ("coding".equals(context.parameterSource())) {
+                    issue.addLocation("coding.code");
+                    issue.addExpression("coding.code");
+                } else if (context.parameterSource().startsWith("codeableConcept")) {
+                    String location = context.parameterSource() + ".code";
+                    issue.addLocation(location);
+                    issue.addExpression(location);
+                } else {
+                    issue.addLocation("code");
+                    issue.addExpression("code");
+                }
+                break;
+                
+            case INVALID_DISPLAY:
+                if ("coding".equals(context.parameterSource())) {
+                    issue.addLocation("coding.display");
+                    issue.addExpression("coding.display");
+                } else if (context.parameterSource().startsWith("codeableConcept")) {
+                    String location = context.parameterSource() + ".display";
+                    issue.addLocation(location);
+                    issue.addExpression(location);
+                } else {
+                    issue.addLocation("display");
+                    issue.addExpression("display");
+                }
+                break;
+                
+            case SYSTEM_NOT_FOUND:
+                if ("coding".equals(context.parameterSource())) {
+                    issue.addLocation("coding.system");
+                    issue.addExpression("coding.system");
+                } else if (context.parameterSource().startsWith("codeableConcept")) {
+                    String location = context.parameterSource() + ".system";
+                    issue.addLocation(location);
+                    issue.addExpression(location);
+                } else {
+                    issue.addLocation("system");
+                    issue.addExpression("system");
+                }
+                break;
+                
+            default:
+                // ¹w³]±¡ªp
+                issue.addLocation(context.parameterSource());
+                issue.addExpression(context.parameterSource());
+                break;
+        }
+    }
+    
+ // ®Ú¾Ú¿ù»~Ãş«¬«Ø¥ß¸Ô²Ó°T®§
+    private String buildDetailedErrorMessage(ValidationContext context, CodeSystem codeSystem, String errorMessage) {
+        switch (context.errorType()) {
+            case INVALID_CODE:
+                if (codeSystem != null && context.code() != null && context.system() != null) {
+                    return String.format("Unknown code '%s' in the CodeSystem '%s'%s", 
+                        context.code().getValue(), 
+                        context.system().getValue(),
+                        codeSystem.hasVersion() ? " version '" + codeSystem.getVersion() + "'" : "");
+                }
+                break;
+                
+            case INVALID_DISPLAY:
+                if (context.display() != null && context.code() != null) {
+                    return String.format("Display '%s' is not valid for code '%s'", 
+                        context.display().getValue(), 
+                        context.code().getValue());
+                }
+                break;
+                
+            case SYSTEM_NOT_FOUND:
+                if (context.system() != null) {
+                    return String.format("CodeSystem '%s' not found", context.system().getValue());
+                }
+                break;
+        }
+        
+        return errorMessage;
+    }
+
+    // ®Ú¾Ú¿ù»~Ãş«¬Àò¨ú FHIR issue type
+    private OperationOutcome.IssueType getIssueTypeForError(ValidationErrorType errorType) {
+        switch (errorType) {
+            case INVALID_CODE:
+                return OperationOutcome.IssueType.CODEINVALID;
+            case INVALID_DISPLAY:
+                return OperationOutcome.IssueType.INVALID;
+            case SYSTEM_NOT_FOUND:
+                return OperationOutcome.IssueType.NOTFOUND;
+            default:
+                return OperationOutcome.IssueType.PROCESSING;
+        }
+    }
+
+    // ®Ú¾Ú¿ù»~Ãş«¬Àò¨ú message ID
+    private String getMessageIdForError(ValidationErrorType errorType) {
+        switch (errorType) {
+            case INVALID_CODE:
+                return "Unknown_Code_in_Version";
+            case INVALID_DISPLAY:
+                return "Invalid_Display";
+            case SYSTEM_NOT_FOUND:
+                return "CodeSystem_Not_Found";
+            default:
+                return "Validation_Error";
+        }
+    }
+
+    // ®Ú¾Ú¿ù»~Ãş«¬Àò¨ú detail code
+    private String getDetailCodeForError(ValidationErrorType errorType) {
+        switch (errorType) {
+            case INVALID_CODE:
+                return "invalid-code";
+            case INVALID_DISPLAY:
+                return "invalid-display";
+            case SYSTEM_NOT_FOUND:
+                return "not-found";
+            default:
+                return "processing";
+        }
+    }
+    
+    private List<ValidationParams> extractMultipleValidationParams(CodeType code, UriType system, StringType display,
+            Coding coding, CodeableConcept codeableConcept) {
+        List<ValidationParams> paramsList = new ArrayList<>();
+        
+        if (coding != null) {
+            paramsList.add(new ValidationParams(
+                coding.getCodeElement(), 
+                coding.getSystemElement(), 
+                coding.getDisplayElement(),
+                "coding"
+            ));
+        }
+        
+        if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()) {
+            for (int i = 0; i < codeableConcept.getCoding().size(); i++) {
+                Coding c = codeableConcept.getCoding().get(i);
+                paramsList.add(new ValidationParams(
+                    c.getCodeElement(), 
+                    c.getSystemElement(), 
+                    c.getDisplayElement(),
+                    "codeableConcept.coding[" + i + "]"
+                ));
+            }
+        }
+        
+        if (code != null) {
+            paramsList.add(new ValidationParams(code, system, display, "code"));
+        }
+        
+        return paramsList;
+    }
+    
+    private String getDisplayForLanguage(ConceptDefinitionComponent concept, CodeType displayLanguage) {
+        if (displayLanguage == null || concept == null) {
+            return concept != null ? concept.getDisplay() : null;
+        }
+        String lang = displayLanguage.getValue();
+        for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
+            if (lang.equalsIgnoreCase(desig.getLanguage())) {
+                return desig.getValue();
+            }
+        }
+        return concept.getDisplay();
+    }
+    
     
     private Parameters buildValidationResultWithExtensions(boolean isValid, CodeType code, UriType system, 
                                                          CodeSystem codeSystem, ConceptDefinitionComponent concept, 
@@ -1047,11 +1285,11 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         concept.getExtensionsByUrl(ExtensionUrls.CODESYSTEM_LABEL.getUrl()).forEach(ext -> {
             var param = result.addParameter().setName("designation");
             param.addPart()
-            		.setName("use")
-            		.setValue(new Coding().setCode("label"));
+                    .setName("use")
+                    .setValue(new Coding().setCode("label"));
             param.addPart()
-    				.setName("value")
-    				.setValue(ext.getValue());
+                    .setName("value")
+                    .setValue(ext.getValue());
         });
         
         // Item weight extension
@@ -1064,11 +1302,11 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         if (extension != null && extension.hasValue()) {
             var prop = result.addParameter().setName("property");
             prop.addPart()
-            		.setName("code")
-            		.setValue(new CodeType(propertyCode));
+                    .setName("code")
+                    .setValue(new CodeType(propertyCode));
             prop.addPart()
-            		.setName("value")
-            		.setValue(extension.getValue());
+                    .setName("value")
+                    .setValue(extension.getValue());
         }
     }
     
@@ -1104,7 +1342,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         searchParams.add(CodeSystem.SP_URL, new UriParam(systemUrl));
         
         if (StringUtils.isNotBlank(version)) {
-            searchParams.add(CodeSystem.SP_VERSION, new StringParam(version));
+            searchParams.add(CodeSystem.SP_VERSION, new TokenParam(version));
         }
         
         var searchResult = dao.search(searchParams, systemRequestDetails);
@@ -1130,7 +1368,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         searchParams.add("_id", new TokenParam(id));
         
         if (version != null && !version.isEmpty()) {
-            searchParams.add(CodeSystem.SP_VERSION, new StringParam(version.getValue()));
+            searchParams.add(CodeSystem.SP_VERSION, new TokenParam(version.getValue()));
         }
         
         var searchResult = dao.search(searchParams, systemRequestDetails);
@@ -1153,27 +1391,27 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return codeSystem;
     }
     
-    private CodeSystem findCodeSystemByUrl(String systemUrl, String version) {
-        return getCodeSystem(systemUrl, version);
-    }
-    
-    private CodeSystem findCodeSystemWithConcept(String code, String systemUrl, String version) {
-        var codeSystem = getCodeSystem(systemUrl, version);
+    // ¥D­n­×§ïÂI 3: ·s¼W¤ä´©¦hª©¥»¬d¸ßªº¤èªk
+    private List<CodeSystem> findAllVersionsOfCodeSystem(String systemUrl) {
+        var searchParams = new SearchParameterMap();
+        searchParams.add(CodeSystem.SP_URL, new UriParam(systemUrl));
+        // ¤£«ü©wª©¥»¡AÀò¨ú©Ò¦³ª©¥»
         
-        var conceptExists = codeSystem.getConcept().stream()
-            .anyMatch(c -> c.getCode().equals(code)) ||
-            findConceptRecursive(codeSystem.getConcept(), code) != null;
+        var searchResult = dao.search(searchParams, systemRequestDetails);
+        List<CodeSystem> codeSystems = new ArrayList<>();
         
-        if (!conceptExists) {
-            throw new ResourceNotFoundException(
-                String.format("Concept with code '%s' not found in CodeSystem '%s'", code, systemUrl));
+        for (int i = 0; i < searchResult.size(); i++) {
+            var resource = searchResult.getResources(i, 1).get(0);
+            if (resource instanceof CodeSystem) {
+                codeSystems.add((CodeSystem) resource);
+            }
         }
         
-        return codeSystem;
+        return codeSystems;
     }
     
-    private ConceptDefinitionComponent findConceptInCodeSystem(CodeSystem codeSystem, String code) {
-        return findConceptRecursive(codeSystem.getConcept(), code);
+    private CodeSystem findCodeSystemByUrl(String systemUrl, String version) {
+        return getCodeSystem(systemUrl, version);
     }
     
     private ConceptDefinitionComponent findConceptRecursive(List<ConceptDefinitionComponent> concepts, String code) {
@@ -1189,6 +1427,98 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
         return null;
     }
+
+    // Exception class
+    public static class ResourceNotFoundException extends RuntimeException {
+        public ResourceNotFoundException(String message) {
+            super(message);
+        }
+        
+        public ResourceNotFoundException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    
+    private CodeSystem findCodeSystemWithConcept(String code, String systemUrl, String version) {
+        if (version != null && !version.trim().isEmpty()) {
+            // ¦pªG«ü©wª©¥»¡Aª½±µ¬d§ä¸Óª©¥»
+            var codeSystem = getCodeSystem(systemUrl, version.trim());
+            var conceptExists = findConceptRecursive(codeSystem.getConcept(), code) != null;
+            
+            if (!conceptExists) {
+                throw new ResourceNotFoundException(
+                    String.format("Concept with code '%s' not found in CodeSystem '%s' version '%s'", 
+                        code, systemUrl, version));
+            }
+            return codeSystem;
+        } else {
+            // ¦pªG¨S¦³«ü©wª©¥»¡A¬d§ä©Ò¦³ª©¥»¤¤ªº·§©À
+            List<CodeSystem> codeSystems = findAllVersionsOfCodeSystem(systemUrl);
+            
+            if (codeSystems.isEmpty()) {
+                throw new ResourceNotFoundException(
+                    String.format("CodeSystem with URL '%s' not found", systemUrl));
+            }
+            
+            // Àu¥ı¨Ï¥Î³Ì·sª©¥»©Îª¬ºA¬° active ªºª©¥»
+            CodeSystem selectedCodeSystem = null;
+            for (CodeSystem cs : codeSystems) {
+                if (findConceptRecursive(cs.getConcept(), code) != null) {
+                    if (selectedCodeSystem == null || 
+                        isPreferredVersion(cs, selectedCodeSystem)) {
+                        selectedCodeSystem = cs;
+                    }
+                }
+            }
+            
+            if (selectedCodeSystem == null) {
+                throw new ResourceNotFoundException(
+                    String.format("Concept with code '%s' not found in any version of CodeSystem '%s'", 
+                        code, systemUrl));
+            }
+            
+            return selectedCodeSystem;
+        }
+    }
+    
+ // ¥D­n­×§ïÂI 5: ·s¼Wª©¥»Àu¥ı¯Å§PÂ_¤èªk
+    private boolean isPreferredVersion(CodeSystem candidate, CodeSystem current) {
+        // 1. Àu¥ı¿ï¾Ü active ª¬ºA
+        if (candidate.hasStatus() && candidate.getStatus() == Enumerations.PublicationStatus.ACTIVE &&
+            (!current.hasStatus() || current.getStatus() != Enumerations.PublicationStatus.ACTIVE)) {
+            return true;
+        }
+        
+        // 2. ¦pªG³£¬O active ©Î³£¤£¬O active¡A¤ñ¸ûª©¥»¸¹
+        if (candidate.hasVersion() && current.hasVersion()) {
+            try {
+                // ¹Á¸Õ¼Æ¦rª©¥»¤ñ¸û
+                double candidateVer = Double.parseDouble(candidate.getVersion());
+                double currentVer = Double.parseDouble(current.getVersion());
+                return candidateVer > currentVer;
+            } catch (NumberFormatException e) {
+                // ¦pªG¤£¬O¼Æ¦rª©¥»¡A¨Ï¥Î¦r¦ê¤ñ¸û
+                return candidate.getVersion().compareTo(current.getVersion()) > 0;
+            }
+        }
+        
+        // 3. Àu¥ı¿ï¾Ü¦³ª©¥»¸¹ªº
+        if (candidate.hasVersion() && !current.hasVersion()) {
+            return true;
+        }
+        
+        // 4. ¤ñ¸û³Ì«á§ó·s®É¶¡
+        if (candidate.hasDate() && current.hasDate()) {
+            return candidate.getDate().after(current.getDate());
+        }
+        
+        return false;
+    }
+    
+    private ConceptDefinitionComponent findConceptInCodeSystem(CodeSystem codeSystem, String code) {
+        return findConceptRecursive(codeSystem.getConcept(), code);
+    }
+    
     
     // Utility Methods
     
@@ -1240,18 +1570,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         codeSystem.addExtension(new Extension(extensionUrl, value));
     }
 
-    // Record ç”¨ä¾†ç°¡åŒ–è³‡æ–™è¼‰é«”é¡åˆ¥ï¼ˆdata carrier classesï¼‰çš„å»ºç«‹
+    // Record ¥Î¨ÓÂ²¤Æ¸ê®Æ¸üÅéÃş§O¡]data carrier classes¡^ªº«Ø¥ß
     private record NormalizedParams(String code, String system, String version) {}
-    private record ValidationParams(CodeType code, UriType system, StringType display) {}
-    
-    // Custom Exception Classes
-    public static class ResourceNotFoundException extends RuntimeException {
-        public ResourceNotFoundException(String message) {
-            super(message);
-        }
-        
-        public ResourceNotFoundException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
+
 }
