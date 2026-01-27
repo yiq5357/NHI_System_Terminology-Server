@@ -316,8 +316,9 @@ public class ConceptCollector {
 					}
 				}
 
+				List<Extension> extensionsToPreserve = Collections.emptyList();
 				if (conceptRef.hasExtension()) {
-					applyValueSetConceptExtensions(mergedConceptDef, conceptRef.getExtension());
+					extensionsToPreserve = applyValueSetConceptExtensions(mergedConceptDef, conceptRef.getExtension());
 				}
 
 				if (conceptFilter.matchesAllFilters(mergedConceptDef, include.getFilter(), codeSystem)
@@ -327,33 +328,49 @@ public class ConceptCollector {
 					  if (codeSystem.hasVersion()) {
 					      request.recordUsedCodeSystem(codeSystem.getUrl(), codeSystem.getVersion());
 					  }
-					allCodes.add(componentBuilder.createExpansionComponent(codeSystem, mergedConceptDef, request));
+					  ValueSetExpansionContainsComponent component =
+					      componentBuilder.createExpansionComponent(codeSystem, mergedConceptDef, request);
+
+					  for (Extension ext : extensionsToPreserve) {
+					      component.addExtension(ext);
+					  }
+
+					  allCodes.add(component);
 				}
 			}
 		}
 	}
 
-	private void applyValueSetConceptExtensions(CodeSystem.ConceptDefinitionComponent conceptDef,
+	/**
+	 * Applies ValueSet-level concept extensions to the concept definition
+	 * Returns a list of extensions that should be preserved as-is
+	 */
+	private List<Extension> applyValueSetConceptExtensions(CodeSystem.ConceptDefinitionComponent conceptDef,
 			List<Extension> vsExtensions) {
+		List<Extension> extensionsToPreserve = new ArrayList<>();
+
 		for (Extension ext : vsExtensions) {
+			String url = ext.getUrl();
+
+
+			if ("http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status".equals(url) ||
+				"http://hl7.org/fhir/StructureDefinition/valueset-deprecated".equals(url)) {
+				// Remove any CodeSystem-level extension with the same URL to avoid conflicts may...
+				conceptDef.getExtension().removeIf(e -> e.getUrl().equals(url));
+				extensionsToPreserve.add(ext);
+				continue;
+			}
 
 			conceptDef.getExtension().removeIf(e -> e.getUrl().equals(ext.getUrl()));
 			conceptDef.addExtension(ext);
-
-			// 暫時不見天日
-			/*
-			 * if
-			 * ("http://hl7.org/fhir/StructureDefinition/valueset-concept-definition".equals
-			 * (ext.getUrl()) && ext.hasValue()) {
-			 * conceptDef.setDefinition(ext.getValue().primitiveValue()); }
-			 */
 
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/valueset-conceptOrder", "order",
 					conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/valueset-label", "label", conceptDef);
 			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/itemWeight", "weight", conceptDef);
-			mapExtensionToProperty(ext, "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status", "status", conceptDef);
 		}
+
+		return extensionsToPreserve;
 	}
 
 	private void mapExtensionToProperty(Extension ext, String url, String propertyCode,

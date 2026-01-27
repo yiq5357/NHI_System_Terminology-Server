@@ -93,11 +93,20 @@ public class ValueSetExpansionService {
 			List<CodeSystem> includedCodeSystems, ExpansionRequest request) {
 		Set<String> discoveredProperties = new HashSet<>();
 
+		// Extensions in ValueSet compose, not converted to properties
+		Set<String> preservedExtensionUrls = Set.of(
+			"http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status",
+			"http://hl7.org/fhir/StructureDefinition/valueset-deprecated"
+		);
+
 		if (valueSet.hasCompose()) {
 			for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
 				for (ConceptReferenceComponent concept : include.getConcept()) {
 					for (Extension ext : concept.getExtension()) {
-						ConceptComponentBuilder.getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+						// Skip 
+						if (!preservedExtensionUrls.contains(ext.getUrl())) {
+							ConceptComponentBuilder.getPropertyCodeFromExtensionUrl(ext.getUrl()).ifPresent(discoveredProperties::add);
+						}
 					}
 				}
 			}
