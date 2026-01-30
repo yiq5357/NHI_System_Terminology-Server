@@ -31,6 +31,9 @@ public class OperationOutcomeMessageId {
     // 常用的 URL 常量
     public static final String TX_ISSUE_TYPE_SYSTEM = "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type";
     public static final String MESSAGE_ID_EXTENSION_URL = "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id";
+    
+    public static final String NO_VALID_DISPLAY_FOUND_LANG_NONE = "NO_VALID_DISPLAY_FOUND_NONE_FOR_LANG_ERR";
+    public static final String NO_VALID_DISPLAY_FOUND_LANG_SOME = "NO_VALID_DISPLAY_FOUND_SOME_FOR_LANG_ERR";
  
     // 防止實例化
     private OperationOutcomeMessageId() {

@@ -128,7 +128,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         return dao.patch(theId, null, patchType, thePatchBody, null, systemRequestDetails);
     }
     
-    // $lookup Operation 
     @Operation(name = "$lookup", idempotent = true)
     public IBaseResource lookup(
             @OperationParam(name = "code") CodeType code,
@@ -386,13 +385,13 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             addDesignationParameter(response, designation));
         
         // 檢查是否已經存在 display 類型的 designation
-        boolean hasDisplayDesignation = concept.getDesignation().stream()
-            .anyMatch(d -> d.hasUse() && 
-                          "http://terminology.hl7.org/CodeSystem/designation-usage".equals(d.getUse().getSystem()) &&
-                          "display".equals(d.getUse().getCode()));
+        boolean hasPreferredForLanguageDesignation = concept.getDesignation().stream()
+                .anyMatch(d -> d.hasUse() && 
+                              "http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra".equals(d.getUse().getSystem()) &&
+                              "preferredForLanguage".equals(d.getUse().getCode()));
         
         // 只有在沒有 display designation 且概念有 display 時，才自動補一個
-        if (!hasDisplayDesignation && concept.hasDisplay()) {
+        if (!hasPreferredForLanguageDesignation && concept.hasDisplay()) {
             var param = response.addParameter().setName("designation");
 
             // 語言：先嘗試 concept extension -> CodeSystem.language -> 預設 en
@@ -404,23 +403,23 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 if (codeSystem.hasLanguage()) {
                     languageCode = codeSystem.getLanguage();
                 } else {
-                    languageCode = "en"; // 預設值
+                    languageCode = "en";
                 }
             }
 
             param.addPart()
-                .setName("language")
-                .setValue(new CodeType(languageCode));
+            .setName("language")
+            .setValue(new CodeType(languageCode));
 
             param.addPart()
-                .setName("use")
-                .setValue(new Coding()
-                    .setSystem("http://terminology.hl7.org/CodeSystem/designation-usage")
-                    .setCode("display"));
+            .setName("use")
+            .setValue(new Coding()
+                .setSystem("http://terminology.hl7.org/CodeSystem/hl7TermMaintInfra")
+                .setCode("preferredForLanguage"));
 
             param.addPart()
-                .setName("value")
-                .setValue(new StringType(concept.getDisplay()));
+            .setName("value")
+            .setValue(new StringType(concept.getDisplay()));
         }
         
         // 基於擴展的指定項目
@@ -433,9 +432,17 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         var param = response.addParameter().setName("designation");
         
         if (designation.hasUse()) {
+        	Coding useCoding = designation.getUse();
+            
+            // 如果 Coding 沒有 display，嘗試從 code 生成一個
+            if (!useCoding.hasDisplay() && useCoding.hasCode()) {
+                useCoding = useCoding.copy(); // 創建副本避免修改原始對象
+                useCoding.setDisplay(useCoding.getCode());
+            }
+            
             param.addPart()
                 .setName("use")
-                .setValue(designation.getUse());
+                .setValue(useCoding);
         }
         
         if (designation.hasLanguage()) {
@@ -830,7 +837,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             });
     }
 
- // $validate-code Operation for CodeSystem only
     @Operation(name = "$validate-code", idempotent = true)
     public Parameters validateCode(
             @IdParam(optional = true) IdType resourceId,
@@ -927,7 +933,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             
             // 使用有效的 system URL
             if (effectiveSystem != null) {
-                result.addParameter("system", effectiveSystem);
+            	result.addParameter("system", new UriType(effectiveSystem.getValue()));
             }
             
             // 添加版本信息
@@ -1066,7 +1072,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
 			
 			// 添加 system 參數
 			if (context.system() != null) {
-			result.addParameter("system", context.system());
+				result.addParameter("system", new UriType(context.system().getValue()));
 			}
 			
 			return result;
