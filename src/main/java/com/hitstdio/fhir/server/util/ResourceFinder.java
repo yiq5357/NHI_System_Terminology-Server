@@ -214,6 +214,9 @@ public class ResourceFinder {
             issue.setCode(OperationOutcome.IssueType.NOTFOUND);
 
             CodeableConcept details = new CodeableConcept();
+            details.addCoding()
+                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                .setCode("not-found");
             details.setText("Unable to find CodeSystem for canonical URL '" + system +
                             (version != null ? "|" + version : "") + "'");
             issue.setDetails(details);
@@ -258,6 +261,9 @@ public class ResourceFinder {
             issue.setCode(OperationOutcome.IssueType.NOTFOUND);
 
             CodeableConcept details = new CodeableConcept();
+            details.addCoding()
+                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                .setCode("not-found");
             details.setText("Unable to find CodeSystem for canonical URL '" + system +
                             (version != null ? "|" + version : "") + "'");
             issue.setDetails(details);
