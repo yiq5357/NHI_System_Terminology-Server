@@ -194,16 +194,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return expansionService.expand(request);
     }
     
-    @Operation(name = "$validate-code", idempotent = true)
+      @Operation(name = "$validate-code", idempotent = true)
     public IBaseResource validateCode(
             @IdParam(optional = true) IdType resourceId,
             @OperationParam(name = "code") CodeType code,
+            @OperationParam(name = "system") UrlType systemUrlType,
             @OperationParam(name = "system") UriType system,
             @OperationParam(name = "system") CanonicalType systemCanonical,
             @OperationParam(name = "systemVersion") StringType systemVersion,
             @OperationParam(name = "systemVersion") CodeType systemVersionCode,
+            @OperationParam(name = "url") UrlType urlType,
             @OperationParam(name = "url") UriType url,
             @OperationParam(name = "url") CanonicalType urlCanonical,
+            @OperationParam(name = "valueSet") UrlType valueSetUrlType,
             @OperationParam(name = "valueSet") UriType valueSetUrl,
             @OperationParam(name = "valueSet") CanonicalType valueSetCanonical,
             @OperationParam(name = "version") StringType version,
@@ -232,9 +235,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             boolean isMembershipOnlyMode = valuesetMembershipOnly != null && valuesetMembershipOnly.getValue();
         	
         	// 解析系統 URL
-            UriType resolvedSystem = resolveUriParameter(system, systemCanonical);
-            UriType resolvedUrl = resolveUriParameter(url, urlCanonical);
-            UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical);
+            UriType resolvedSystem = resolveUriParameter(system, systemCanonical, systemUrlType);
+            UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlType);
+            UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
         	
             // 解析 systemVersion
             StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
@@ -329,9 +332,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         isMembershipOnlyMode
                     );
                     
+                    System.out.println("=== DEBUG ValidationResult ===");
+                    System.out.println("errorType = " + validationResult.errorType());
+                    System.out.println("isValid = " + validationResult.isValid());
+                    System.out.println("=== END DEBUG ===");
+                    
                     // 處理 SYSTEM_NOT_FOUND 錯誤
                     if (validationResult.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND) {
-                        ValidationContext systemNotFoundContext = new ValidationContext(
+                    	System.out.println(">>> Handling SYSTEM_NOT_FOUND");
+                    	ValidationContext systemNotFoundContext = new ValidationContext(
                             params.parameterSource(),
                             params.code(),
                             params.system(),
@@ -356,6 +365,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     
                     // 處理 SYSTEM_VERSION_NOT_FOUND 錯誤
                     if (validationResult.errorType() == ValidationErrorType.SYSTEM_VERSION_NOT_FOUND) {                    	
+                    	System.out.println(">>> Handling SYSTEM_VERSION_NOT_FOUND");
+                        System.out.println(">>> Calling buildCodeSystemVersionNotFoundError");
                         Parameters errorResult = buildCodeSystemVersionNotFoundError(
                             params, 
                             targetValueSet, 
@@ -762,6 +773,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                     
                 } catch (CodeSystemVersionNotFoundException e) {
+                	System.out.println(">>> Caught CodeSystemVersionNotFoundException in catch block");
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
                             params, resolvedSystemVersion);
                     failedValidationContext = new ValidationContext(
@@ -777,6 +789,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     );
                     matchedCodeSystem = null;
                 } catch (ResourceNotFoundException e) {
+                	System.out.println(">>> Caught ResourceNotFoundException in catch block");
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
                             params, resolvedSystemVersion);
                     failedValidationContext = new ValidationContext(
@@ -951,7 +964,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
         } catch (ResourceNotFoundException e) {
             if (e.getMessage() != null && e.getMessage().contains("ValueSet")) {
-                String valueSetUrlForError = extractValueSetUrlFromException(e, url, urlCanonical, valueSetUrl, valueSetCanonical);
+                String valueSetUrlForError = extractValueSetUrlFromException(e, url, urlCanonical, valueSetUrl, valueSetCanonical, urlType, valueSetUrlType);
                 OperationOutcome outcome = buildValueSetNotFoundOutcome(valueSetUrlForError, e.getMessage());
 
                 if (outcome.hasIssue()) {
@@ -966,7 +979,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             
             if (e.getMessage() != null && e.getMessage().contains("CodeSystem")) {
                 StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
-                UriType resolvedSystem = resolveUriParameter(system, systemCanonical);
+                UriType resolvedSystem = resolveUriParameter(system, systemCanonical, systemUrlType);
                 
                 ValidationContext errorContext = new ValidationContext(
                     codeableConcept != null ? "codeableConcept" : "code",
@@ -985,8 +998,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     if (resourceId != null) {
                         targetValueSet = getValueSetById(resourceId.getIdPart(), version);
                     } else {
-                        UriType resolvedUrl = resolveUriParameter(url, urlCanonical);
-                        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical);
+                        UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlType);
+                        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
                         
                         if (resolvedUrl != null) {
                             targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
@@ -1211,13 +1224,13 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     }
 
     // 統一處理 UriType 和 CanonicalType 的方法
-    private UriType resolveUriParameter(UriType uriParam, CanonicalType canonicalParam) {
-    	if (uriParam != null && !uriParam.isEmpty()) {
+    private UriType resolveUriParameter(UriType uriParam, CanonicalType canonicalParam, UrlType urlParam) {
+        if (uriParam != null && !uriParam.isEmpty()) {
             return uriParam;
+        } else if (urlParam != null && !urlParam.isEmpty()) {
+            return new UriType(urlParam.getValue());
         } else if (canonicalParam != null && !canonicalParam.isEmpty()) {
-            // CanonicalType 可以包含版本信息 (url|version)
             String canonicalValue = canonicalParam.getValue();
-            // 移除版本部分（如果有）
             String urlPart = canonicalValue.contains("|") ? 
                 canonicalValue.substring(0, canonicalValue.indexOf("|")) : 
                 canonicalValue;
@@ -1248,6 +1261,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             										BooleanType activeOnly, BooleanType lenientDisplayValidation,
                                                     boolean membershipOnly) {
     	
+    	System.out.println("=== DEBUG validateCodeInValueSet ===");
+        System.out.println("system = " + (system != null ? system.getValue() : "null"));
+        System.out.println("code = " + (code != null ? code.getValue() : "null"));
+        System.out.println("systemVersion = " + (systemVersion != null ? systemVersion.getValue() : "null"));
+        System.out.println("=== END DEBUG ===");
+    	
     	if (valueSet == null || code == null) {
             return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE, null, null, null); 
         }
@@ -1271,19 +1290,27 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         
         if (systemVersion != null && !systemVersion.isEmpty() && valueSet.hasCompose()) {
-            for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+        	System.out.println(">>> Checking version match logic");
+        	for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
                 if (include.hasSystem() && system.getValue().equals(include.getSystem())) {
                 	String valueSetVersion = include.hasVersion() ? include.getVersion() : null;
                     String requestedVersion = systemVersion.getValue();
+                    
+                    System.out.println(">>> valueSetVersion = " + valueSetVersion);
+                    System.out.println(">>> requestedVersion = " + requestedVersion);
                 	
                     if (valueSetVersion != null && !valueSetVersion.equals(requestedVersion)) {
                         try {
+                        	System.out.println(">>> Trying to find CodeSystem with requested version");
                             findCodeSystemByUrl(system.getValue(), requestedVersion);
+                            System.out.println(">>> Found! Returning VERSION_MISMATCH_WITH_VALUESET");
                             return new ValidationResult(false, null, null, null, 
                                     ValidationErrorType.VERSION_MISMATCH_WITH_VALUESET, 
                                     null, null, null);
                         } catch (ResourceNotFoundException e) {
 
+                        	System.out.println(">>> Not found! Building version exception");
+                        	
                         	CodeSystemVersionNotFoundException versionException = 
                                     new CodeSystemVersionNotFoundException(
                                         String.format("CodeSystem with URL '%s' and version '%s' not found", 
@@ -1350,6 +1377,47 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                     break;
                 }
+            }
+        }
+        
+     // ========== 新增：在進入 compose 之前，檢查 CodeSystem 是否存在（當有明確版本時）==========
+        if (systemVersion != null && !systemVersion.isEmpty()) {
+            System.out.println(">>> Pre-compose check: Has explicit version, checking if CodeSystem exists");
+            try {
+                // 嘗試找指定版本的 CodeSystem
+                findCodeSystemByUrl(system.getValue(), systemVersion.getValue());
+                System.out.println(">>> Found CodeSystem with requested version");
+            } catch (ResourceNotFoundException e) {
+                System.out.println(">>> CodeSystem with requested version not found");
+                // 檢查 CodeSystem 是否完全不存在
+                CodeSystemVersionNotFoundException versionException = 
+                    new CodeSystemVersionNotFoundException(
+                        String.format("CodeSystem with URL '%s' and version '%s' not found", 
+                                    system.getValue(), systemVersion.getValue()));
+                versionException.setUrl(system.getValue());
+                versionException.setRequestedVersion(systemVersion.getValue());
+                
+                List<String> availableVersions = new ArrayList<>();
+                try {
+                    System.out.println(">>> Checking if CodeSystem exists at all");
+                    List<CodeSystem> allVersions = findAllCodeSystemVersions(system.getValue());
+                    System.out.println(">>> Found " + allVersions.size() + " versions");
+                    for (CodeSystem cs : allVersions) {
+                        if (cs.hasVersion()) {
+                            availableVersions.add(cs.getVersion());
+                        }
+                    }
+                } catch (Exception ex) {
+                    System.out.println(">>> CodeSystem doesn't exist at all (no versions found)");
+                    // availableVersions 保持為空 = CodeSystem 完全不存在
+                }
+                
+                versionException.setAvailableVersions(availableVersions);
+                System.out.println(">>> Returning SYSTEM_VERSION_NOT_FOUND with " + availableVersions.size() + " available versions");
+                
+                return new ValidationResult(false, null, null, null, 
+                    ValidationErrorType.SYSTEM_VERSION_NOT_FOUND, 
+                    null, versionException, null);
             }
         }
 
@@ -3495,13 +3563,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                                   UriType url, 
                                                   CanonicalType urlCanonical,
                                                   UriType valueSetUrl, 
-                                                  CanonicalType valueSetCanonical) {
-        UriType resolvedUrl = resolveUriParameter(url, urlCanonical);
+                                                  CanonicalType valueSetCanonical,
+                                                  UrlType urlParam,
+                                                  UrlType valueSetUrlType) {
+        UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlParam);
         if (resolvedUrl != null && !resolvedUrl.isEmpty()) {
             return resolvedUrl.getValue();
         }
         
-        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical);
+        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
         if (resolvedValueSetUrl != null && !resolvedValueSetUrl.isEmpty()) {
             return resolvedValueSetUrl.getValue();
         }
@@ -3923,24 +3993,35 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
     }
     
-    private Parameters buildCodeSystemVersionNotFoundError(
-            ValidationParams params,
-            ValueSet targetValueSet,
-            StringType effectiveSystemVersion,
-            CodeSystemVersionNotFoundException versionException) {
-
+    private Parameters buildCodeSystemVersionNotFoundError( ValidationParams params, ValueSet targetValueSet,
+												            StringType effectiveSystemVersion,
+												            CodeSystemVersionNotFoundException versionException) {
+        
+    	// === 快速測試開始 ===
+        System.out.println("=== DEBUG buildCodeSystemVersionNotFoundError ===");
+        System.out.println("params.parameterSource() = " + params.parameterSource());
+        System.out.println("effectiveSystemVersion = " + (effectiveSystemVersion != null ? effectiveSystemVersion.getValue() : "null"));
+        
         if (params.originalCoding() != null) {
-            String codingVersion = params.originalCoding().hasVersion() ? 
-                params.originalCoding().getVersion() : "NULL";
+            System.out.println("originalCoding.system = " + params.originalCoding().getSystem());
+            System.out.println("originalCoding.code = " + params.originalCoding().getCode());
+            System.out.println("originalCoding.version = " + (params.originalCoding().hasVersion() ? params.originalCoding().getVersion() : "null"));
         }
         
-        if (params.originalCodeableConcept() != null && 
-            !params.originalCodeableConcept().getCoding().isEmpty()) {
-            String ccVersion = params.originalCodeableConcept().getCoding().get(0).hasVersion() ?
-                params.originalCodeableConcept().getCoding().get(0).getVersion() : "NULL";
+        if (params.originalCodeableConcept() != null) {
+            System.out.println("originalCodeableConcept has " + params.originalCodeableConcept().getCoding().size() + " codings");
+            for (int i = 0; i < params.originalCodeableConcept().getCoding().size(); i++) {
+                Coding c = params.originalCodeableConcept().getCoding().get(i);
+                System.out.println("  coding[" + i + "].version = " + (c.hasVersion() ? c.getVersion() : "null"));
+            }
         }
         
-        Parameters result = new Parameters();
+        boolean hasExplicit = hasExplicitlyProvidedVersion(params);
+        System.out.println("hasExplicitlyProvidedVersion() = " + hasExplicit);
+        System.out.println("=== END DEBUG ===");
+        // === 快速測試結束 ===
+    	
+    	Parameters result = new Parameters();
         
         // 判斷參數來源
         boolean isCoding = "coding".equals(params.parameterSource());
@@ -3963,7 +4044,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         String codeValue = params.code() != null ? params.code().getValue() : "";
         
         // 判斷是否有明確指定版本
-        boolean hasExplicitVersion = requestedVersion != null && !requestedVersion.isEmpty();
+        // boolean hasExplicitVersion = requestedVersion != null && !requestedVersion.isEmpty();
+        boolean hasExplicitVersion = hasExplicitlyProvidedVersion(params);
         
         // CodeSystem 完全不存在 (所有參數類型都適用)
         if (isCodeSystemNotFound) {
@@ -4307,6 +4389,55 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         result.addParameter("x-caused-by-unknown-system", new CanonicalType(canonicalUrl));
         
         return result;
+    }
+    
+    private boolean hasExplicitlyProvidedVersion(ValidationParams params) {
+        // 檢查 coding 中是否有明確的 version
+        if (params.originalCoding() != null && 
+            params.originalCoding().hasVersion() && 
+            !params.originalCoding().getVersion().isEmpty()) {
+            return true;
+        }
+        
+        // 除錯：檢查 originalCoding
+        if (params.originalCoding() != null) {
+            System.out.println("DEBUG: originalCoding exists");
+            System.out.println("DEBUG: originalCoding.hasVersion() = " + params.originalCoding().hasVersion());
+            if (params.originalCoding().hasVersion()) {
+                System.out.println("DEBUG: originalCoding.getVersion() = " + params.originalCoding().getVersion());
+                System.out.println("DEBUG: originalCoding.getVersion().isEmpty() = " + params.originalCoding().getVersion().isEmpty());
+            }
+        } else {
+            System.out.println("DEBUG: originalCoding is null");
+        }
+        
+        // 除錯：檢查 originalCodeableConcept
+        if (params.originalCodeableConcept() != null) {
+            System.out.println("DEBUG: originalCodeableConcept exists");
+            System.out.println("DEBUG: originalCodeableConcept.getCoding().size() = " + params.originalCodeableConcept().getCoding().size());
+            for (int i = 0; i < params.originalCodeableConcept().getCoding().size(); i++) {
+                Coding c = params.originalCodeableConcept().getCoding().get(i);
+                System.out.println("DEBUG: coding[" + i + "].hasVersion() = " + c.hasVersion());
+                if (c.hasVersion()) {
+                    System.out.println("DEBUG: coding[" + i + "].getVersion() = " + c.getVersion());
+                }
+            }
+        } else {
+            System.out.println("DEBUG: originalCodeableConcept is null");
+        }
+        
+        // 檢查 codeableConcept 中是否有明確的 version
+        if (params.originalCodeableConcept() != null) {
+            for (Coding c : params.originalCodeableConcept().getCoding()) {
+                if (c.hasVersion() && !c.getVersion().isEmpty()) {
+                	System.out.println("DEBUG: Returning true from originalCodeableConcept coding");
+                    return true;
+                }
+            }
+        }
+        
+        System.out.println("DEBUG: Returning false");
+        return false;
     }
     
     private UriType inferSystemFromValueSet(ValueSet valueSet, CodeType code, StringType display) {
