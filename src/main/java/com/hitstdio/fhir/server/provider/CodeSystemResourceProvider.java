@@ -859,14 +859,27 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
             CodeSystem matchedCodeSystem = null;
             ValidationContext failedValidationContext = null;
 
-
             for (var params : paramsList) {
                 validateValidationParams(params.code(), params.system(), resourceId);
 
-             // 找 CodeSystem 並檢查 code - 修改以保留 CodeSystem 引用
+                // 找 CodeSystem 並檢查 code - 修改以保留 CodeSystem 引用
                 CodeSystem codeSystem = null;
                 try {
                     codeSystem = findCodeSystemForValidation(resourceId, params, version);
+                    
+                    // 檢查是否為 Supplement 類型 CodeSystem
+                    if (CodeSystem.CodeSystemContentMode.SUPPLEMENT.equals(codeSystem.getContent())) {
+                        failedValidationContext = new ValidationContext(
+                            params.parameterSource(),
+                            params.code(),
+                            params.system(),
+                            params.display(),
+                            ValidationErrorType.SUPPLEMENT_AS_SYSTEM
+                        );
+                        matchedCodeSystem = codeSystem;
+                        continue;
+                    }
+
                     var concept = findConceptRecursive(codeSystem.getConcept(), params.code().getValue());
 
                     if (concept != null) {
@@ -874,6 +887,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                         matchedCodeSystem = codeSystem;
 
                         boolean isValidDisplay = isDisplayValidExtended(concept, params.display(), displayLanguage);
+                        
                         if (isValidDisplay) {
                             anyValid = true;
                             break;
@@ -909,10 +923,40 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     );
                 }
             }
-
+            
             if (!anyValid) {
-                return buildValidationErrorWithOutcome(false, failedValidationContext, 
-                        matchedCodeSystem, "Code validation failed");
+                // 代碼存在，但 display 是 deprecated designation 的值
+                if (matchedConcept != null && failedValidationContext != null &&
+                        failedValidationContext.errorType() == ValidationErrorType.INVALID_DISPLAY) {
+                    // 重新檢查是否命中 deprecated designation（由修改三處理）
+                    // 若 isOldDisplay 為 true，繼續執行成功路徑
+                    // 此段邏輯已由修改三在 isOldDisplay 判斷前完成，anyValid 需重新設定
+
+                    // 重新執行 isOldDisplay 判斷（與修改三相同邏輯）
+                    if (display != null && !display.isEmpty()) {
+                        for (ConceptDefinitionDesignationComponent desig : matchedConcept.getDesignation()) {
+                            for (Extension ext : desig.getExtension()) {
+                                if ("http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status"
+                                        .equals(ext.getUrl())) {
+                                    Type val = ext.getValue();
+                                    boolean isDeprecatedDesig =
+                                        (val instanceof CodeType && "deprecated".equalsIgnoreCase(((CodeType) val).getValue())) ||
+                                        (val instanceof StringType && "deprecated".equalsIgnoreCase(((StringType) val).getValue()));
+                                    if (isDeprecatedDesig && display.getValue().equalsIgnoreCase(desig.getValue())) {
+                                        anyValid = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (anyValid) break;
+                        }
+                    }
+                }
+
+	            if (!anyValid) {
+	                return buildValidationErrorWithOutcome(false, failedValidationContext, 
+	                        matchedCodeSystem, "Code validation failed");
+	            }
             }
 
             // 建立成功回應 - 修改此部分以符合期望輸出格式
@@ -929,11 +973,78 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 result.addParameter("display", new StringType(resolvedDisplay));
             }
             
+            // 判斷 deprecated 狀態
+            boolean isConcDeprecated = matchedConcept != null && isConceptDeprecated(matchedConcept);
+            boolean isOldDisplay = false;
+            
+            if (display != null && !display.isEmpty() && matchedConcept != null) {
+                String currentDisplay = getDisplayForLanguage(matchedConcept, displayLanguage);
+                boolean matchesCurrent = currentDisplay != null &&
+                        display.getValue().equalsIgnoreCase(currentDisplay);
+
+                if (!matchesCurrent) {
+                    // 檢查傳入的 display 是否命中某個 deprecated designation
+                    boolean matchesDeprecatedDesignation = false;
+                    for (ConceptDefinitionDesignationComponent desig : matchedConcept.getDesignation()) {
+                        for (Extension ext : desig.getExtension()) {
+                            if ("http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status"
+                                    .equals(ext.getUrl())) {
+                                Type val = ext.getValue();
+                                boolean isDeprecatedDesig = 
+                                    (val instanceof CodeType && "deprecated".equalsIgnoreCase(((CodeType) val).getValue())) ||
+                                    (val instanceof StringType && "deprecated".equalsIgnoreCase(((StringType) val).getValue()));
+                                if (isDeprecatedDesig && display.getValue().equalsIgnoreCase(desig.getValue())) {
+                                    matchesDeprecatedDesignation = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (matchesDeprecatedDesignation) break;
+                    }
+                    // 只要命中 deprecated designation，就標記為 isOldDisplay
+                    isOldDisplay = matchesDeprecatedDesignation;
+                    // 同時標記 isConcDeprecated，讓後續 warning 邏輯啟動
+                    if (isOldDisplay) isConcDeprecated = true;
+                }
+            }
+
+            if (isConcDeprecated && display != null && !display.isEmpty()) {
+                // 傳入的 display 是否與目前正確的 display 不同（即舊 display）
+                String currentDisplay = getDisplayForLanguage(matchedConcept, displayLanguage);
+                boolean matchesCurrent = currentDisplay != null &&
+                        display.getValue().equalsIgnoreCase(currentDisplay);
+                isOldDisplay = !matchesCurrent;
+            }
+
+            // 建立 warning OperationOutcome（如有需要）
+            OperationOutcome warningOutcome = buildDeprecatedWarningOutcome(
+                isConcDeprecated, isOldDisplay, code, display, matchedConcept, displayLanguage
+            );
+
+            if (warningOutcome != null) {
+                result.addParameter().setName("issues").setResource(warningOutcome);
+            }
+
+            // code 本身 deprecated，加 message
+            if (isConcDeprecated && !isOldDisplay) {
+                String msg = String.format(
+                    "The concept '%s' is deprecated and its use should be reviewed",
+                    code != null ? code.getValue() : ""
+                );
+                result.addParameter("message", new StringType(msg));
+            }
+
+            
             result.addParameter("result", new BooleanType(true));
             
             // 使用有效的 system URL
             if (effectiveSystem != null) {
             	result.addParameter("system", new UriType(effectiveSystem.getValue()));
+            }
+            
+            // deprecated concept 加 status 欄位
+            if (isConcDeprecated && !isOldDisplay) {
+                result.addParameter("status", new StringType("deprecated"));
             }
             
             // 添加版本信息
@@ -972,15 +1083,15 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         INVALID_DISPLAY, 
         SYSTEM_NOT_FOUND,
         GENERAL_ERROR,
-        INTERNAL_ERROR
+        INTERNAL_ERROR,
+        SUPPLEMENT_AS_SYSTEM
     }
 
-    // 修改後的 ValidationParams 記錄，增加參數來源信息
     private record ValidationParams(
         CodeType code, 
         UriType system, 
         StringType display,
-        String parameterSource  // 新增：記錄參數來源
+        String parameterSource 
     ) {}
     
     // 修改驗證參數方法以支持 url 參數
@@ -1004,20 +1115,54 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     //支援大小寫忽略與 designation 比對
     private boolean isDisplayValidExtended(ConceptDefinitionComponent concept, StringType display, CodeType displayLanguage) {
         if (display == null || display.isEmpty()) {
-            return true; // 沒傳 display 就直接 pass
+            return true;
         }
 
+        // 1. 比對目前正確的 display
         String expected = getDisplayForLanguage(concept, displayLanguage);
         if (expected != null && display.getValue().equalsIgnoreCase(expected)) {
             return true;
         }
 
-        // 檢查 designation
+        // 2. 比對 designation 中的所有值（包含舊版 display 常存於此）
         for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
+            // 檢查此 designation 是否被標記為 deprecated，若是則跳過
+            boolean designationDeprecated = false;
+            for (Extension ext : desig.getExtension()) {
+                if ("http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status"
+                        .equals(ext.getUrl())) {
+                    Type val = ext.getValue();
+                    if (val instanceof CodeType &&
+                            "deprecated".equalsIgnoreCase(((CodeType) val).getValue())) {
+                        designationDeprecated = true;
+                        break;
+                    }
+                    if (val instanceof StringType &&
+                            "deprecated".equalsIgnoreCase(((StringType) val).getValue())) {
+                        designationDeprecated = true;
+                        break;
+                    }
+                }
+            }
+            if (designationDeprecated) continue; //跳過已棄用的 designation
+
             if (display.getValue().equalsIgnoreCase(desig.getValue())) {
                 return true;
             }
         }
+        
+        // 3. 若是 deprecated concept，比對 extension 中儲存的舊 display（原有）
+        if (isConceptDeprecated(concept)) {
+            for (Extension ext : concept.getExtension()) {
+                if (ext.hasValue() && ext.getValue() instanceof StringType) {
+                    String extVal = ((StringType) ext.getValue()).getValue();
+                    if (display.getValue().equalsIgnoreCase(extVal)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
         return false;
     }
 
@@ -1122,6 +1267,20 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 }
                 break;
                 
+            case SUPPLEMENT_AS_SYSTEM:
+                if ("coding".equals(context.parameterSource())) {
+                    issue.addLocation("Coding.system");
+                    issue.addExpression("Coding.system");
+                } else if (context.parameterSource().startsWith("codeableConcept")) {
+                    String location = context.parameterSource() + ".system";
+                    issue.addLocation(location);
+                    issue.addExpression(location);
+                } else {
+                    issue.addLocation("system");
+                    issue.addExpression("system");
+                }
+                break;
+                
             default:
                 // 預設情況
                 issue.addLocation(context.parameterSource());
@@ -1130,7 +1289,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
     
- // 根據錯誤類型建立詳細訊息
+    // 根據錯誤類型建立詳細訊息
     private String buildDetailedErrorMessage(ValidationContext context, CodeSystem codeSystem, String errorMessage) {
         switch (context.errorType()) {
             case INVALID_CODE:
@@ -1155,6 +1314,16 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                     return String.format("CodeSystem '%s' not found", context.system().getValue());
                 }
                 break;
+                
+            case SUPPLEMENT_AS_SYSTEM:
+                if (context.system() != null && codeSystem != null) {
+                    String ver = codeSystem.hasVersion() ? "|" + codeSystem.getVersion() : "";
+                    return String.format(
+                        "CodeSystem %s%s is a supplement, so can't be used as a value in Coding.system",
+                        context.system().getValue(), ver
+                    );
+                }
+                break;
         }
         
         return errorMessage;
@@ -1169,6 +1338,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 return OperationOutcome.IssueType.INVALID;
             case SYSTEM_NOT_FOUND:
                 return OperationOutcome.IssueType.NOTFOUND;
+            case SUPPLEMENT_AS_SYSTEM:
+                return OperationOutcome.IssueType.INVALID;
             default:
                 return OperationOutcome.IssueType.PROCESSING;
         }
@@ -1183,6 +1354,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 return "Invalid_Display";
             case SYSTEM_NOT_FOUND:
                 return "CodeSystem_Not_Found";
+            case SUPPLEMENT_AS_SYSTEM:
+                return "CODESYSTEM_CS_NO_SUPPLEMENT";
             default:
                 return "Validation_Error";
         }
@@ -1197,6 +1370,8 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
                 return "invalid-display";
             case SYSTEM_NOT_FOUND:
                 return "not-found";
+            case SUPPLEMENT_AS_SYSTEM:
+                return "invalid-data";
             default:
                 return "processing";
         }
@@ -1487,7 +1662,7 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
         }
     }
     
- // 主要修改點 5: 新增版本優先級判斷方法
+    // 主要修改點 5: 新增版本優先級判斷方法
     private boolean isPreferredVersion(CodeSystem candidate, CodeSystem current) {
         // 1. 優先選擇 active 狀態
         if (candidate.hasStatus() && candidate.getStatus() == Enumerations.PublicationStatus.ACTIVE &&
@@ -1527,7 +1702,6 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
     
     
     // Utility Methods
-    
     private boolean isSnomedCT(String systemUrl) {
         return systemUrl != null && systemUrl.contains(SNOMED_CT_SYSTEM_URL);
     }
@@ -1578,5 +1752,130 @@ public class CodeSystemResourceProvider extends BaseResourceProvider<CodeSystem>
 
     // Record 用來簡化資料載體類別（data carrier classes）的建立
     private record NormalizedParams(String code, String system, String version) {}
+    
+    private boolean isConceptDeprecated(ConceptDefinitionComponent concept) {
+        if (concept == null) return false;
+
+        // 方式 1 & 2：property 方式
+        for (CodeSystem.ConceptPropertyComponent prop : concept.getProperty()) {
+        	if ("status".equals(prop.getCode())) {
+                Type val = prop.getValue();
+                if (val instanceof CodeType &&
+                        "deprecated".equalsIgnoreCase(((CodeType) val).getValue())) return true;
+                if (val instanceof StringType &&
+                        "deprecated".equalsIgnoreCase(((StringType) val).getValue())) return true;
+            }
+        	
+        	if ("deprecated".equals(prop.getCode())) {
+                Type val = prop.getValue();
+                if (val instanceof BooleanType && Boolean.TRUE.equals(((BooleanType) val).getValue())) return true;
+            }
+        	
+        	if ("notSelectable".equals(prop.getCode())) {
+                Type val = prop.getValue();
+                if (val instanceof BooleanType && Boolean.TRUE.equals(((BooleanType) val).getValue())) return true;
+            }
+        }
+
+        // 方式 3：extension codesystem-concept-deprecation（原有）
+        Extension ext1 = concept.getExtensionByUrl(
+            "http://hl7.org/fhir/StructureDefinition/codesystem-concept-deprecation");
+        if (ext1 != null && ext1.hasValue()) {
+            Type val = ext1.getValue();
+            if (val instanceof BooleanType && Boolean.TRUE.equals(((BooleanType) val).getValue())) return true;
+        }
+
+        // 方式 4：extension concept-deprecated（原有）
+        Extension ext2 = concept.getExtensionByUrl(
+            "http://hl7.org/fhir/StructureDefinition/concept-deprecated");
+        if (ext2 != null && ext2.hasValue()) {
+            Type val = ext2.getValue();
+            if (val instanceof BooleanType && Boolean.TRUE.equals(((BooleanType) val).getValue())) return true;
+        }
+        
+        // 方式 5：structuredefinition-standards-status = "deprecated"
+        Extension ext3 = concept.getExtensionByUrl(
+            "http://hl7.org/fhir/StructureDefinition/structuredefinition-standards-status");
+        if (ext3 != null && ext3.hasValue()) {
+            Type val = ext3.getValue();
+            if (val instanceof CodeType &&
+                    "deprecated".equalsIgnoreCase(((CodeType) val).getValue())) return true;
+            if (val instanceof StringType &&
+                    "deprecated".equalsIgnoreCase(((StringType) val).getValue())) return true;
+        }
+
+        return false;
+    }
+
+    private OperationOutcome buildDeprecatedWarningOutcome(
+            boolean isConcDeprecated,
+            boolean isOldDisplay,
+            CodeType code,
+            StringType inputDisplay,
+            ConceptDefinitionComponent concept,
+            CodeType displayLanguage) {
+
+        if (!isConcDeprecated) return null;
+
+        OperationOutcome outcome = new OperationOutcome();
+        OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
+        issue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+
+        if (!isOldDisplay) {
+            // code 本身 deprecated
+            issue.addExtension(new Extension(
+                "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id",
+                new StringType("DEPRECATED_CONCEPT_FOUND")
+            ));
+            issue.setCode(OperationOutcome.IssueType.BUSINESSRULE);
+
+            CodeableConcept details = new CodeableConcept();
+            details.addCoding(new Coding(
+                "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type",
+                "code-comment",
+                null
+            ));
+            details.setText(String.format(
+                "The concept '%s' is deprecated and its use should be reviewed",
+                code != null ? code.getValue() : ""
+            ));
+            issue.setDetails(details);
+
+            issue.addLocation("code");
+            issue.addExpression("code");
+
+        } else {
+            // display 是舊的（deprecated concept 的過時 display）
+            issue.addExtension(new Extension(
+                "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id",
+                new StringType("INACTIVE_DISPLAY_FOUND")
+            ));
+            issue.setCode(OperationOutcome.IssueType.INVALID);
+
+            String currentDisplay = getDisplayForLanguage(concept, displayLanguage);
+            String inputDisplayValue = inputDisplay != null ? inputDisplay.getValue() : "";
+            String codeValue = code != null ? code.getValue() : "";
+
+            CodeableConcept details = new CodeableConcept();
+            details.addCoding(new Coding(
+                "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type",
+                "display-comment",
+                null
+            ));
+            details.setText(String.format(
+                "'%s' is no longer considered a correct display for code '%s' (status = deprecated). "
+                + "The correct display is one of \"%s\".",
+                inputDisplayValue,
+                codeValue,
+                currentDisplay != null ? currentDisplay : ""
+            ));
+            issue.setDetails(details);
+
+            issue.addLocation("display");
+            issue.addExpression("display");
+        }
+
+        return outcome;
+    }
 
 }

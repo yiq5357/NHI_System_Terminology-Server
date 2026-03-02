@@ -1,5 +1,6 @@
 package com.hitstdio.fhir.server.provider;
 
+import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
@@ -19,11 +20,14 @@ import ca.uhn.fhir.rest.param.TokenParam;
 import ca.uhn.fhir.rest.param.UriParam;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
+import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.jena.sparql.function.library.leviathan.log;
+import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.instance.model.api.IBaseDatatype;
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IPrimitiveType;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
 import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionDesignationComponent;
@@ -194,21 +198,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return expansionService.expand(request);
     }
     
-      @Operation(name = "$validate-code", idempotent = true)
+    @Operation(name = "$validate-code", idempotent = true)
     public IBaseResource validateCode(
             @IdParam(optional = true) IdType resourceId,
             @OperationParam(name = "code") CodeType code,
-            @OperationParam(name = "system") UrlType systemUrlType,
-            @OperationParam(name = "system") UriType system,
-            @OperationParam(name = "system") CanonicalType systemCanonical,
+            @OperationParam(name = "system") CanonicalType system,
             @OperationParam(name = "systemVersion") StringType systemVersion,
-            @OperationParam(name = "systemVersion") CodeType systemVersionCode,
-            @OperationParam(name = "url") UrlType urlType,
             @OperationParam(name = "url") UriType url,
-            @OperationParam(name = "url") CanonicalType urlCanonical,
-            @OperationParam(name = "valueSet") UrlType valueSetUrlType,
-            @OperationParam(name = "valueSet") UriType valueSetUrl,
-            @OperationParam(name = "valueSet") CanonicalType valueSetCanonical,
+            @OperationParam(name = "valueSet") CanonicalType valueSet,
             @OperationParam(name = "version") StringType version,
             @OperationParam(name = "display") StringType display,
             @OperationParam(name = "coding") Coding coding,
@@ -224,30 +221,24 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     	// 在所有驗證之前先檢查 displayLanguage 的有效性
     	if (displayLanguage != null && !displayLanguage.isEmpty()) {
             if (!isValidLanguageCode(displayLanguage.getValue())) {
-                // 直接拋出異常，不繼續執行
                 throw buildInvalidLanguageCodeException(displayLanguage);
             }
         }    	
     	
         try { 
         	        	
-        	// 判斷是否為 membership-only 模式
             boolean isMembershipOnlyMode = valuesetMembershipOnly != null && valuesetMembershipOnly.getValue();
-        	
-        	// 解析系統 URL
-            UriType resolvedSystem = resolveUriParameter(system, systemCanonical, systemUrlType);
-            UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlType);
-            UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
-        	
-            // 解析 systemVersion
-            StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
+            
+            UriType resolvedSystem = system != null ? new UriType(system.getValue()) : null;
+            UriType resolvedUrl = url;
+            UriType resolvedValueSetUrl = valueSet != null ? new UriType(valueSet.getValue()) : null;
+            StringType resolvedSystemVersion = systemVersion;
             
             // 處理 inferSystem 邏輯
             if ((resolvedSystem == null || resolvedSystem.isEmpty()) && 
                 inferSystem != null && inferSystem.getValue() && 
                 code != null && !code.isEmpty()) {
                 
-                // 先獲取 ValueSet
                 ValueSet targetValueSet = null;
                 if (resourceId != null) {
                     targetValueSet = getValueSetById(resourceId.getIdPart(), version);
@@ -278,15 +269,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 resolvedSystemVersion = new StringType(coding.getVersion());
             }
             
-            // 解析 ValueSet URL
             ValueSet targetValueSet = null;
             
             if (resourceId != null) {
                 targetValueSet = getValueSetById(resourceId.getIdPart(), version);
-            } else {
-              //  UriType resolvedUrl = resolveUriParameter(url, urlCanonical);
-              //  UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical);
-                
+            } else {                
                 if (resolvedUrl != null) {
                     targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
                         version != null ? version.getValue() : null);
@@ -294,6 +281,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     targetValueSet = findValueSetByUrl(resolvedValueSetUrl.getValue(), 
                         version != null ? version.getValue() : null);
                 } else {
+                	// 在拋出缺少 ValueSet 錯誤前，先檢查 system 是否為 supplement
+                    // 這樣即使沒有提供 ValueSet，supplement 錯誤也能被正確回傳
+                    UriType systemToCheck = resolvedSystem;
+                    if (systemToCheck == null && coding != null && coding.hasSystem()) {
+                        systemToCheck = new UriType(coding.getSystem());
+                    }
+                    if (systemToCheck == null && codeableConcept != null && !codeableConcept.getCoding().isEmpty()
+                            && codeableConcept.getCoding().get(0).hasSystem()) {
+                        systemToCheck = new UriType(codeableConcept.getCoding().get(0).getSystem());
+                    }
+
                     throw new InvalidRequestException("Either resource ID, 'url', or 'valueSet' parameter must be provided");
                 }
             }
@@ -312,8 +310,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             boolean foundValidCode = false;
             
             for (var params : paramsList) {
-               
-                validateValidationParams(params.code(), params.system(), resourceId, url, valueSetUrl);
+            	validateValidationParams(params.code(), params.system(), resourceId, resolvedUrl, resolvedValueSetUrl);
 
                 try {
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
@@ -331,15 +328,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         lenientDisplayValidation,
                         isMembershipOnlyMode
                     );
-                    
-                    System.out.println("=== DEBUG ValidationResult ===");
-                    System.out.println("errorType = " + validationResult.errorType());
-                    System.out.println("isValid = " + validationResult.isValid());
-                    System.out.println("=== END DEBUG ===");
-                    
+
                     // 處理 SYSTEM_NOT_FOUND 錯誤
                     if (validationResult.errorType() == ValidationErrorType.SYSTEM_NOT_FOUND) {
-                    	System.out.println(">>> Handling SYSTEM_NOT_FOUND");
                     	ValidationContext systemNotFoundContext = new ValidationContext(
                             params.parameterSource(),
                             params.code(),
@@ -364,9 +355,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                     
                     // 處理 SYSTEM_VERSION_NOT_FOUND 錯誤
-                    if (validationResult.errorType() == ValidationErrorType.SYSTEM_VERSION_NOT_FOUND) {                    	
-                    	System.out.println(">>> Handling SYSTEM_VERSION_NOT_FOUND");
-                        System.out.println(">>> Calling buildCodeSystemVersionNotFoundError");
+                    if (validationResult.errorType() == ValidationErrorType.SYSTEM_VERSION_NOT_FOUND) { 
                         Parameters errorResult = buildCodeSystemVersionNotFoundError(
                             params, 
                             targetValueSet, 
@@ -431,7 +420,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         removeNarratives(errorResult);
                         return errorResult;
                     }
-                    
+                                 
                     // 處理 REFERENCED_VALUESET_NOT_FOUND 錯誤
                     if (validationResult.errorType() == ValidationErrorType.REFERENCED_VALUESET_NOT_FOUND) {
                         Parameters errorResult = buildReferencedValueSetNotFoundError(
@@ -441,6 +430,18 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         );
                         removeNarratives(errorResult);
                         return errorResult;
+                    }
+                    
+                    // 處理 UNKNOWN_CODE_IN_FRAGMENT（Fragment CodeSystem 中找不到代碼）
+                    if (validationResult.errorType() == ValidationErrorType.UNKNOWN_CODE_IN_FRAGMENT) {
+                        Parameters fragmentResult = buildFragmentUnknownCodeResponse(
+                            params,
+                            validationResult.codeSystem(),
+                            targetValueSet,
+                            effectiveSystemVersion
+                        );
+                        removeNarratives(fragmentResult);
+                        return fragmentResult;
                     }
                     
                     // 處理 INVALID_DISPLAY_WARNING（寬鬆模式）
@@ -614,6 +615,18 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             }
                         }
                     	
+                    	// 處理 UNKNOWN_CODE_IN_FRAGMENT（Fragment CodeSystem 中找不到代碼）
+                        if (validationResult.errorType() == ValidationErrorType.UNKNOWN_CODE_IN_FRAGMENT) {
+                            Parameters fragmentResult = buildFragmentUnknownCodeResponse(
+                                params,
+                                validationResult.codeSystem(),
+                                targetValueSet,
+                                effectiveSystemVersion
+                            );
+                            removeNarratives(fragmentResult);
+                            return fragmentResult;
+                        }
+                    	
                     	// 檢查是否有語言警告
                     	 if (validationResult.errorType() == ValidationErrorType.NO_DISPLAY_FOR_LANGUAGE_NONE ||
                              validationResult.errorType() == ValidationErrorType.NO_DISPLAY_FOR_LANGUAGE_SOME) {
@@ -632,7 +645,20 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                  removeNarratives(result);
                                  return result;
                              }
-                    	
+                    	 
+                    	 	// 處理 deprecated in valueset 警告
+                    	    if (validationResult.errorType() == ValidationErrorType.CONCEPT_DEPRECATED_IN_VALUESET) {
+                    	        Parameters deprecatedResult = buildSuccessResponseWithDeprecatedWarning(
+                    	            params,
+                    	            validationResult.display(),
+                    	            validationResult.codeSystem(),
+                    	            targetValueSet,
+                    	            effectiveSystemVersion
+                    	        );
+                    	        removeNarratives(deprecatedResult);
+                    	        return deprecatedResult;
+                    	    }
+                    	  
                         if (validationResult.isInactive() != null && 
                             validationResult.isInactive() && 
                             activeOnly != null && activeOnly.getValue()) {
@@ -672,13 +698,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             resolvedSystemVersion = effectiveSystemVersion;
                         }
                         
-                  /*  } else if (validationResult.errorType() == ValidationErrorType.INVALID_LANGUAGE_CODE) {
-                        Parameters errorResult = buildInvalidLanguageCodeError(
-                            params,
-                            displayLanguage
-                        );
-                        removeNarratives(errorResult);
-                        return errorResult;*/
                         
                     } else if (validationResult.errorType() == ValidationErrorType.INVALID_DISPLAY) {
                     	
@@ -715,7 +734,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         
                     } else if (validationResult.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
                         // CODE_NOT_IN_VALUESET 的特殊處理
-                        // 記錄 concept 和 codeSystem 資訊
                         if (validationResult.concept() != null && matchedConcept == null) {
                             matchedConcept = validationResult.concept();
                         }
@@ -734,7 +752,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             resolvedSystemVersion = effectiveSystemVersion;
                         }
                         
-                     // 建立 ValidationContext 並設置為 failedValidationContext
+                        // 建立 ValidationContext 並設置為 failedValidationContext
                         ValidationContext codeNotInVsContext = new ValidationContext(
                             params.parameterSource(),
                             params.code(),
@@ -747,10 +765,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             params.originalCodeableConcept()
                         );
                         
-                        // 記錄此錯誤
                         allValidationContexts.add(codeNotInVsContext);
-                        
-                        // 設置 failedValidationContext
+                       
                         failedValidationContext = codeNotInVsContext;
                         
                     } else {
@@ -773,7 +789,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                     
                 } catch (CodeSystemVersionNotFoundException e) {
-                	System.out.println(">>> Caught CodeSystemVersionNotFoundException in catch block");
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
                             params, resolvedSystemVersion);
                     failedValidationContext = new ValidationContext(
@@ -789,7 +804,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     );
                     matchedCodeSystem = null;
                 } catch (ResourceNotFoundException e) {
-                	System.out.println(">>> Caught ResourceNotFoundException in catch block");
                     StringType effectiveSystemVersion = determineEffectiveSystemVersion(
                             params, resolvedSystemVersion);
                     failedValidationContext = new ValidationContext(
@@ -822,7 +836,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 	
                     completeContext = new ValidationContext(
                         failedValidationContext.parameterSource(),
-                        // failedValidationContext.code(),
                         contextCode,
                         failedValidationContext.system() != null ? 
                         		failedValidationContext.system() : successfulParams.system(),
@@ -859,7 +872,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 return errorResult;
             }
 
-            // 檢查是否為「部分成功」情況（CodeableConcept 特有）
             boolean isCodeableConcept = codeableConcept != null || 
                 (successfulParams != null && 
                  (successfulParams.originalCodeableConcept() != null ||
@@ -887,7 +899,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                    return errorResult;
                 }
                 
-                // CodeableConcept 部分成功：有有效的 code 但有其他錯誤（或多個錯誤）
                 StringType finalSystemVersion = determineEffectiveSystemVersion(
                     successfulParams, resolvedSystemVersion);
                 
@@ -905,7 +916,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
                 
 
-            // 處理單純的 INVALID_DISPLAY 錯誤（非 CodeableConcept 或沒有其他錯誤）
+            // 處理單純的 INVALID_DISPLAY 錯誤
             if (!isMembershipOnlyMode && !anyValid && foundValidCode && 
                 failedValidationContext != null && 
                 failedValidationContext.errorType() == ValidationErrorType.INVALID_DISPLAY) {
@@ -938,7 +949,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     targetValueSet
                 );
             } else if (hasDisplayWarning) {
-                // 使用帶有 warning 的回應建立方法
                 successResult = buildSuccessResponseWithDisplayWarning(
                     successfulParams, 
                     matchedDisplay,
@@ -948,24 +958,52 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     incorrectDisplay
                 );
             } else {
-                // 正常的成功回應
-                successResult = buildSuccessResponse(
-                    successfulParams, 
-                    matchedDisplay, 
-                    matchedCodeSystem, 
-                    targetValueSet, 
-                    finalSystemVersion, 
-                    null
-                );
+                // 取得 validationResult 的 isInactive 狀態
+                // 注意：此處需從最後一次成功的 validationResult 取得 isInactive
+                // 由於 anyValid=true 的路徑中已將 isInactive 資訊存入 matchedConcept，
+                // 因此直接用 isConceptInactive 重新判斷
+                boolean isInactiveConcept = false;
+                if (matchedConcept != null) {
+                    Boolean inactiveStatus = isConceptInactive(matchedConcept);
+                    isInactiveConcept = inactiveStatus != null && inactiveStatus;
+                }
+
+                if (isInactiveConcept) {
+                	// 取得實際的 status 字串（inactive / retired / deprecated 等）
+                    String conceptStatus = resolveConceptStatus(matchedConcept);
+                    successResult = buildSuccessResponseWithInactiveWarning(
+                        successfulParams,
+                        matchedDisplay,
+                        matchedCodeSystem,
+                        targetValueSet,
+                        finalSystemVersion,
+                        conceptStatus
+                    );
+                } else {
+                    successResult = buildSuccessResponse(
+                        successfulParams,
+                        matchedDisplay,
+                        matchedCodeSystem,
+                        targetValueSet,
+                        finalSystemVersion,
+                        null
+                    );
+                }
             }
 
             removeNarratives(successResult);
             return successResult;
 
-        } catch (ResourceNotFoundException e) {
+        } catch (UnprocessableEntityException e) {
+            throw e;  // 直接重新拋出，讓 HAPI FHIR 框架轉成 OperationOutcome
+        }catch (ResourceNotFoundException e) {
             if (e.getMessage() != null && e.getMessage().contains("ValueSet")) {
-                String valueSetUrlForError = extractValueSetUrlFromException(e, url, urlCanonical, valueSetUrl, valueSetCanonical, urlType, valueSetUrlType);
-                OperationOutcome outcome = buildValueSetNotFoundOutcome(valueSetUrlForError, e.getMessage());
+                String valueSetUrlForError = extractValueSetUrlFromException(
+            		    e,
+            		    url != null ? url.getValue() : null,
+            		    valueSet != null ? valueSet.getValue() : null
+            		);
+            	OperationOutcome outcome = buildValueSetNotFoundOutcome(valueSetUrlForError, e.getMessage());
 
                 if (outcome.hasIssue()) {
                     for (OperationOutcome.OperationOutcomeIssueComponent issue : outcome.getIssue()) {
@@ -978,9 +1016,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
             
             if (e.getMessage() != null && e.getMessage().contains("CodeSystem")) {
-                StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
-                UriType resolvedSystem = resolveUriParameter(system, systemCanonical, systemUrlType);
-                
+                StringType resolvedSystemVersion = systemVersion;
+            	UriType resolvedSystem = system != null ? new UriType(system.getValue()) : null;
+            	
                 ValidationContext errorContext = new ValidationContext(
                     codeableConcept != null ? "codeableConcept" : "code",
                     code,
@@ -998,9 +1036,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     if (resourceId != null) {
                         targetValueSet = getValueSetById(resourceId.getIdPart(), version);
                     } else {
-                        UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlType);
-                        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
-                        
+                     
+                        UriType resolvedUrl = url;
+                        UriType resolvedValueSetUrl = valueSet != null ? new UriType(valueSet.getValue()) : null;
+
                         if (resolvedUrl != null) {
                             targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
                                 version != null ? version.getValue() : null);
@@ -1032,7 +1071,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 return exceptionResult;
             }
             
-            StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
+            StringType resolvedSystemVersion = systemVersion;
             ValidationContext errorContext = new ValidationContext(
                 codeableConcept != null ? "codeableConcept" : "code",
                 code,
@@ -1063,8 +1102,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 throw new InvalidRequestException("Invalid request parameters", outcome);
             }
             
-            StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
-            ValidationContext errorContext = new ValidationContext(
+            StringType resolvedSystemVersion = systemVersion;
+        	ValidationContext errorContext = new ValidationContext(
                 codeableConcept != null ? "codeableConcept" : "code",
                 code,
                 system,
@@ -1083,8 +1122,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             removeNarratives(exceptionResult);
             return exceptionResult;
         } catch (Exception e) {
-            StringType resolvedSystemVersion = resolveSystemVersionParameter(systemVersion, systemVersionCode);
-            ValidationContext errorContext = new ValidationContext(
+            StringType resolvedSystemVersion = systemVersion;
+        	ValidationContext errorContext = new ValidationContext(
                 codeableConcept != null ? "codeableConcept" : "code",
                 code,
                 system,
@@ -1145,19 +1184,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     // 根據 code 和 display 推斷版本的方法
     private StringType inferVersionFromCodeAndDisplay(String systemUrl, String code, String display) {
         try {
-            // 獲取該 CodeSystem 的所有版本
             List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
             
-            // 遍歷每個版本，找到 code 和 display 都匹配的版本
             for (CodeSystem codeSystem : allVersions) {
                 ConceptDefinitionComponent concept = findConceptRecursive(codeSystem.getConcept(), code);
                 if (concept != null) {
-                    // 檢查 display 是否匹配
                     if (isDisplayMatching(concept, display)) {
                         return codeSystem.hasVersion() ? new StringType(codeSystem.getVersion()) : null;
                     }
                     
-                    // 也檢查 designation
                     for (ConceptDefinitionDesignationComponent designation : concept.getDesignation()) {
                         if (display.equalsIgnoreCase(designation.getValue())) {
                             return codeSystem.hasVersion() ? new StringType(codeSystem.getVersion()) : null;
@@ -1178,7 +1213,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         var searchParams = new SearchParameterMap();
         searchParams.add(CodeSystem.SP_URL, new UriParam(systemUrl));
         
-        // 設定排序以獲得一致的順序
         searchParams.setSort(new SortSpec(CodeSystem.SP_VERSION).setOrder(SortOrderEnum.DESC));
         
         var searchResult = myCodeSystemDao.search(searchParams, new SystemRequestDetails());
@@ -1211,34 +1245,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         
         return false;
     }
-    
-    // 統一處理 systemVersion 參數的方法
-    private StringType resolveSystemVersionParameter(StringType stringVersion, CodeType codeVersion) {
-        if (stringVersion != null && !stringVersion.isEmpty()) {
-            return stringVersion;
-        } else if (codeVersion != null && !codeVersion.isEmpty()) {
-            // 將 CodeType 轉換為 StringType
-            return new StringType(codeVersion.getValue());
-        }
-        return null;
-    }
-
-    // 統一處理 UriType 和 CanonicalType 的方法
-    private UriType resolveUriParameter(UriType uriParam, CanonicalType canonicalParam, UrlType urlParam) {
-        if (uriParam != null && !uriParam.isEmpty()) {
-            return uriParam;
-        } else if (urlParam != null && !urlParam.isEmpty()) {
-            return new UriType(urlParam.getValue());
-        } else if (canonicalParam != null && !canonicalParam.isEmpty()) {
-            String canonicalValue = canonicalParam.getValue();
-            String urlPart = canonicalValue.contains("|") ? 
-                canonicalValue.substring(0, canonicalValue.indexOf("|")) : 
-                canonicalValue;
-            return new UriType(urlPart);
-        }
-        return null;
-    }
-    
+   
     private boolean isValueSetUrl(String systemUrl) {
         if (systemUrl == null || systemUrl.isEmpty()) {
             return false;
@@ -1261,12 +1268,71 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             										BooleanType activeOnly, BooleanType lenientDisplayValidation,
                                                     boolean membershipOnly) {
     	
-    	System.out.println("=== DEBUG validateCodeInValueSet ===");
-        System.out.println("system = " + (system != null ? system.getValue() : "null"));
-        System.out.println("code = " + (code != null ? code.getValue() : "null"));
-        System.out.println("systemVersion = " + (systemVersion != null ? systemVersion.getValue() : "null"));
-        System.out.println("=== END DEBUG ===");
     	
+    	List<CodeSystem> rootSupplements = new ArrayList<>();
+     	
+    	// 檢查 ValueSet-level supplement extension
+    	for (Extension ext : valueSet.getExtension()) {
+
+    	    if ("http://hl7.org/fhir/StructureDefinition/valueset-supplement"
+    	            .equals(ext.getUrl())) {
+
+    	        String supplementUrl = ext.getValue().primitiveValue();
+
+    	        try {
+    	        	// 解析版本（格式可能是 url|version）
+    	            String suppUrl = supplementUrl;
+    	            String suppVersion = null;
+    	            if (supplementUrl.contains("|")) {
+    	                suppUrl = supplementUrl.substring(0, supplementUrl.indexOf("|"));
+    	                suppVersion = supplementUrl.substring(supplementUrl.indexOf("|") + 1);
+    	            }
+    	                	            
+    	            CodeSystem supplementCS = findCodeSystemByUrl(suppUrl, suppVersion);
+    	            
+    	            rootSupplements.add(supplementCS);
+    	        } catch (ResourceNotFoundException e) {
+    	        	// 判斷 compose 是否有明確列舉 concepts
+    	            // 如果有列舉 concepts，supplement 只是提供額外顯示資訊，找不到可以忽略繼續驗證
+    	            // 如果只引用整個 CodeSystem（無列舉），則 supplement 是必要的，需要報錯
+    	            boolean hasEnumeratedConcepts = valueSet.hasCompose() &&
+    	                valueSet.getCompose().getInclude().stream()
+    	                    .anyMatch(include -> !include.getConcept().isEmpty());
+
+    	            if (!hasEnumeratedConcepts) {
+    	                OperationOutcome oo = new OperationOutcome();
+    	                oo.setText(null);
+    	                oo.setMeta(null);
+
+    	                oo.addIssue()
+    	                    .setSeverity(OperationOutcome.IssueSeverity.ERROR)
+    	                    .setCode(OperationOutcome.IssueType.BUSINESSRULE)
+    	                    .getDetails()
+    	                    .setText("supplement|" + supplementUrl);
+
+    	                throw new UnprocessableEntityException(
+    	                    FhirContext.forR4(),
+    	                    oo);
+    	            }
+    	            
+    	        }
+    	    }
+    	}
+    	
+    	// FRAGMENT 偵測
+    	boolean isFragmentValueSet = false;
+    	for (Extension ext : valueSet.getExtension()) {
+    	    if ("http://hl7.org/fhir/StructureDefinition/valueset-fragment".equals(ext.getUrl())) {
+    	        if (ext.getValue() instanceof BooleanType) {
+    	            isFragmentValueSet = ((BooleanType) ext.getValue()).getValue();
+    	        } else {
+    	            // extension 存在即視為 fragment（不論值）
+    	            isFragmentValueSet = true;
+    	        }
+    	        break;
+    	    }
+    	}
+    	    	
     	if (valueSet == null || code == null) {
             return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE, null, null, null); 
         }
@@ -1289,27 +1355,43 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                       ValidationErrorType.SYSTEM_IS_VALUESET, null, null, null);
         }
         
+        if (valueSet.hasCompose()) {
+
+            List<String> missingSupplements =
+                checkForMissingSupplements(valueSet.getCompose(), system);
+
+            if (!missingSupplements.isEmpty()) {
+
+                String supplementUrl = missingSupplements.get(0);
+
+                OperationOutcome oo = new OperationOutcome();
+
+                oo.addIssue()
+                    .setSeverity(OperationOutcome.IssueSeverity.ERROR)
+                    .setCode(OperationOutcome.IssueType.BUSINESSRULE)
+                    .getDetails()
+                    .setText("supplement|" + supplementUrl);
+
+                throw new UnprocessableEntityException(
+                    FhirContext.forR4(),
+                    oo
+                );
+            }
+        }
+
         if (systemVersion != null && !systemVersion.isEmpty() && valueSet.hasCompose()) {
-        	System.out.println(">>> Checking version match logic");
         	for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
                 if (include.hasSystem() && system.getValue().equals(include.getSystem())) {
                 	String valueSetVersion = include.hasVersion() ? include.getVersion() : null;
                     String requestedVersion = systemVersion.getValue();
-                    
-                    System.out.println(">>> valueSetVersion = " + valueSetVersion);
-                    System.out.println(">>> requestedVersion = " + requestedVersion);
-                	
+                                    	
                     if (valueSetVersion != null && !valueSetVersion.equals(requestedVersion)) {
                         try {
-                        	System.out.println(">>> Trying to find CodeSystem with requested version");
                             findCodeSystemByUrl(system.getValue(), requestedVersion);
-                            System.out.println(">>> Found! Returning VERSION_MISMATCH_WITH_VALUESET");
                             return new ValidationResult(false, null, null, null, 
                                     ValidationErrorType.VERSION_MISMATCH_WITH_VALUESET, 
                                     null, null, null);
                         } catch (ResourceNotFoundException e) {
-
-                        	System.out.println(">>> Not found! Building version exception");
                         	
                         	CodeSystemVersionNotFoundException versionException = 
                                     new CodeSystemVersionNotFoundException(
@@ -1349,7 +1431,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             }
                             
                         } catch (ResourceNotFoundException e) {
-                            // 請求的版本不存在
                             CodeSystemVersionNotFoundException versionException = 
                                 new CodeSystemVersionNotFoundException(
                                     String.format("CodeSystem with URL '%s' and version '%s' not found", 
@@ -1380,15 +1461,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
-     // ========== 新增：在進入 compose 之前，檢查 CodeSystem 是否存在（當有明確版本時）==========
         if (systemVersion != null && !systemVersion.isEmpty()) {
-            System.out.println(">>> Pre-compose check: Has explicit version, checking if CodeSystem exists");
             try {
                 // 嘗試找指定版本的 CodeSystem
                 findCodeSystemByUrl(system.getValue(), systemVersion.getValue());
-                System.out.println(">>> Found CodeSystem with requested version");
             } catch (ResourceNotFoundException e) {
-                System.out.println(">>> CodeSystem with requested version not found");
                 // 檢查 CodeSystem 是否完全不存在
                 CodeSystemVersionNotFoundException versionException = 
                     new CodeSystemVersionNotFoundException(
@@ -1399,21 +1476,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 
                 List<String> availableVersions = new ArrayList<>();
                 try {
-                    System.out.println(">>> Checking if CodeSystem exists at all");
                     List<CodeSystem> allVersions = findAllCodeSystemVersions(system.getValue());
-                    System.out.println(">>> Found " + allVersions.size() + " versions");
                     for (CodeSystem cs : allVersions) {
                         if (cs.hasVersion()) {
                             availableVersions.add(cs.getVersion());
                         }
                     }
                 } catch (Exception ex) {
-                    System.out.println(">>> CodeSystem doesn't exist at all (no versions found)");
-                    // availableVersions 保持為空 = CodeSystem 完全不存在
                 }
                 
                 versionException.setAvailableVersions(availableVersions);
-                System.out.println(">>> Returning SYSTEM_VERSION_NOT_FOUND with " + availableVersions.size() + " available versions");
                 
                 return new ValidationResult(false, null, null, null, 
                     ValidationErrorType.SYSTEM_VERSION_NOT_FOUND, 
@@ -1425,74 +1497,64 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     	if (valueSet.hasExpansion() && isExpansionCurrent(valueSet.getExpansion())) {
             ValidationResult expansionResult = validateCodeInExpansion(
                 valueSet.getExpansion(), code, system, display, displayLanguage, abstractAllowed, 
-                systemVersion, activeOnly, lenientDisplayValidation, membershipOnly);
+                systemVersion, activeOnly, lenientDisplayValidation, membershipOnly, rootSupplements);
             if (expansionResult.isValid()) {
                 return expansionResult;
             }
-            // 如果 expansion 返回 INVALID_DISPLAY_WITH_LANGUAGE_ERROR，直接返回
+            // 如果返回 INVALID_DISPLAY_WITH_LANGUAGE_ERROR，直接返回
             if (expansionResult.errorType() == ValidationErrorType.INVALID_DISPLAY_WITH_LANGUAGE_ERROR) {
                 return expansionResult;
-            }
-        }
-    	
-    	// 【新增】檢查 ValueSet 是否引用了不存在的 supplement CodeSystem
-        if (valueSet.hasCompose()) {
-            List<String> missingSupplements = checkForMissingSupplements(valueSet.getCompose(), system);
-            if (!missingSupplements.isEmpty()) {
-                return new ValidationResult(false, null, null, null, 
-                    ValidationErrorType.SUPPLEMENT_NOT_FOUND, null, null, missingSupplements);
             }
         }
 
         // 處理 compose 規則
     	if (valueSet.hasCompose()) {
             ValidationResult composeResult = validateCodeInCompose(valueSet.getCompose(), code, system, display, 
-                                       displayLanguage, abstractAllowed, systemVersion, activeOnly, lenientDisplayValidation, membershipOnly);
+                                       displayLanguage, abstractAllowed, systemVersion, activeOnly, lenientDisplayValidation, 
+                                       membershipOnly, rootSupplements, isFragmentValueSet);
             return composeResult;
         }
 
     	return new ValidationResult(false, null, null, null, ValidationErrorType.CODE_NOT_IN_VALUESET, null, null, null);
     }
     
-    // 新增檢查 supplement 的方法
     private List<String> checkForMissingSupplements(ValueSetComposeComponent compose, UriType system) {
+
         List<String> missingSupplements = new ArrayList<>();
         
         for (ConceptSetComponent include : compose.getInclude()) {
-            // 檢查是否有 supplement 引用
-            if (include.hasSystem() && system != null && 
+
+            if (include.hasSystem() &&
+                system != null &&
                 include.getSystem().equals(system.getValue())) {
-                
-                // 檢查 CodeSystem 的 supplements
-                try {
-                    CodeSystem codeSystem = findCodeSystemByUrl(include.getSystem(), 
-                        include.hasVersion() ? include.getVersion() : null);
-                    
-                    if (codeSystem != null && codeSystem.hasSupplements()) {
-                        String supplementUrl = codeSystem.getSupplements();
-                        
-                        // 檢查 supplement CodeSystem 是否存在
+            	
+                for (Extension ext : include.getExtension()) {
+                    if ("http://hl7.org/fhir/StructureDefinition/valueset-supplement"
+                            .equals(ext.getUrl())) {
+
+                        String supplementUrl = ext.getValue().primitiveValue();
+
                         try {
                             findCodeSystemByUrl(supplementUrl, null);
                         } catch (ResourceNotFoundException e) {
                             missingSupplements.add(supplementUrl);
                         }
                     }
-                } catch (ResourceNotFoundException e) {
-                    // CodeSystem 本身不存在，這會在其他地方處理
                 }
             }
         }
-        
+
         return missingSupplements;
     }
+    
 
     private ValidationResult validateCodeInConceptSet(ConceptSetComponent conceptSet, CodeType code, 
             											UriType system, StringType display, 
             											CodeType displayLanguage, BooleanType abstractAllowed,
             											boolean isInclude, StringType resolvedSystemVersion,
             											BooleanType activeOnly, BooleanType lenientDisplayValidation,
-                                                        boolean membershipOnly) {
+                                                        boolean membershipOnly,
+                                                        List<CodeSystem> rootSupplements) {
         
     	
         // 先檢查請求的 system 是否存在，再檢查是否匹配
@@ -1528,10 +1590,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 if (resolvedSystemVersion != null && !resolvedSystemVersion.isEmpty() && 
                         conceptSet.hasVersion() && !conceptSet.getVersion().isEmpty()) {
                         
-                        // 如果兩個版本不同
                         if (!resolvedSystemVersion.getValue().equals(conceptSet.getVersion())) {
                             
-                            // 檢查請求的版本是否存在
                             try {
                                 findCodeSystemByUrl(systemUrl, resolvedSystemVersion.getValue());
                                 
@@ -1540,7 +1600,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                         null, null, null);
                                 
                             } catch (ResourceNotFoundException e) {
-                                // 請求的版本不存在
                                 CodeSystemVersionNotFoundException versionException = 
                                     new CodeSystemVersionNotFoundException(
                                         String.format("CodeSystem with URL '%s' and version '%s' not found", 
@@ -1587,6 +1646,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                 }
                 
+                if (codeSystem != null && codeSystem.hasSupplements()) {
+                    return new ValidationResult(false, null, null, null,
+                        ValidationErrorType.SYSTEM_IS_SUPPLEMENT, null, null, null);
+                }
+                
             } catch (CodeSystemVersionNotFoundException e) {
                 return new ValidationResult(false, null, null, null, 
                     ValidationErrorType.SYSTEM_VERSION_NOT_FOUND, null, e, null);
@@ -1605,7 +1669,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         if (!conceptSet.getConcept().isEmpty()) {
             ValidationResult result = validateCodeInConceptList(conceptSet.getConcept(), code, display, 
                                            displayLanguage, abstractAllowed, codeSystem, lenientDisplayValidation, 
-                                           membershipOnly);
+                                           membershipOnly, rootSupplements);
             // 如果 codeSystem 為 null，檢查是否應該返回 SYSTEM_NOT_FOUND
             if (!result.isValid() && codeSystem == null && systemUrl != null) {
                 return new ValidationResult(false, null, null, null, 
@@ -1645,7 +1709,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             ValidationResult result = validateCodeInCodeSystem(codeSystem, code, display, 
             													displayLanguage, abstractAllowed, 
             													activeOnly, lenientDisplayValidation,
-                                                                membershipOnly);
+                                                                membershipOnly, rootSupplements);
             
             if (!result.isValid()) {
             	if (!membershipOnly && 
@@ -1666,19 +1730,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
 
                 if (result.concept() == null) {
+                	// 檢查 CodeSystem 是否為 fragment content
+                    if (isCodeSystemFragment(codeSystem)) {
+                        return new ValidationResult(true, null, codeSystem, null,
+                            ValidationErrorType.UNKNOWN_CODE_IN_FRAGMENT, null, null, null);
+                    }
                     return new ValidationResult(false, null, codeSystem, null, 
-                                               ValidationErrorType.INVALID_CODE, 
-                                               null, null, null);
+                                               ValidationErrorType.INVALID_CODE, null, null, null);
                 }
             }
             
             return result;
-        }
-     
-        // 如果有 systemUrl 但 codeSystem 為 null，返回 SYSTEM_NOT_FOUND
-        if (systemUrl != null && codeSystem == null) {
-            return new ValidationResult(false, null, null, null, 
-                ValidationErrorType.SYSTEM_NOT_FOUND, null, null, null);
         }
 
         return new ValidationResult(false, null, null, null, ValidationErrorType.INVALID_CODE, null, null, null);
@@ -1709,7 +1771,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
-        // 4. 優先返回請求中的版本（這是關鍵改動）
+        // 4. 優先返回請求中的版本
         if (requestVersion != null) {
             return requestVersion;
         }
@@ -1723,7 +1785,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 													CodeType displayLanguage, BooleanType abstractAllowed,
 													StringType systemVersion, BooleanType activeOnly,
 		                                            BooleanType lenientDisplayValidation,
-		                                            boolean membershipOnly) {
+		                                            boolean membershipOnly,
+	                                                List<CodeSystem> rootSupplements,
+	                                                boolean isFragment) {
 			
 			boolean foundInInclude = false;
 			ValidationResult includeResult = null;
@@ -1756,7 +1820,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 			for (ConceptSetComponent include : compose.getInclude()) {
 				ValidationResult result = validateCodeInConceptSet(include, code, system, display, 
 			                 	displayLanguage, abstractAllowed, true, systemVersion, activeOnly, 
-			                 	lenientDisplayValidation, membershipOnly);
+			                 	lenientDisplayValidation, membershipOnly, rootSupplements);
 			
 			if (!result.isValid()) {
 				lastErrorResult = result;
@@ -1773,7 +1837,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 					result.errorType() == ValidationErrorType.SYSTEM_VERSION_NOT_FOUND ||
 					result.errorType() == ValidationErrorType.NO_SYSTEM ||
 					result.errorType() == ValidationErrorType.RELATIVE_SYSTEM_REFERENCE ||
-					result.errorType() == ValidationErrorType.SYSTEM_IS_VALUESET) {
+					result.errorType() == ValidationErrorType.SYSTEM_IS_VALUESET ||
+				    result.errorType() == ValidationErrorType.SYSTEM_IS_SUPPLEMENT) {
 					return result;
 				}
 				
@@ -1791,6 +1856,73 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 			}
 			
 			if (!foundInInclude) {
+				// ===== FRAGMENT 寬鬆驗證 =====
+		        // 如果是 fragment ValueSet，代碼不在 ValueSet 中時，
+		        // 嘗試直接從 CodeSystem 驗證代碼是否存在
+				if (isFragment && lastErrorResult != null &&
+			            (lastErrorResult.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET ||
+			             lastErrorResult.errorType() == ValidationErrorType.INVALID_CODE)) {
+					
+					System.out.println("=== FRAGMENT DEBUG ===");
+				    System.out.println("isFragment: " + isFragment);
+				    System.out.println("lastErrorResult type: " + lastErrorResult.errorType());
+				    System.out.println("system param: " + (system != null ? system.getValue() : "null"));
+				    for (ConceptSetComponent include : compose.getInclude()) {
+				        System.out.println("include.system: " + include.getSystem());
+				    }
+
+			            // 找到對應的 CodeSystem，判斷代碼是否存在
+			            for (ConceptSetComponent include : compose.getInclude()) {
+			                if (!include.hasSystem()) {
+			                    continue;
+			                }
+			                
+			                String systemToCheck = system != null ? system.getValue() : null;
+			                if (systemToCheck != null && !systemToCheck.equals(include.getSystem())) {
+			                    continue;
+			                }
+
+			                try {
+			                    String versionToUse = include.hasVersion() ? include.getVersion() : null;
+			                    CodeSystem cs = findCodeSystemByUrl(include.getSystem(), versionToUse);
+			                    ConceptDefinitionComponent concept = findConceptRecursive(
+			                        cs.getConcept(), code.getValue());
+
+			                    if (concept != null) {
+			                        // 代碼存在於 CodeSystem → 正常成功
+			                        if (!membershipOnly && display != null && !display.isEmpty()) {
+			                            boolean isValidDisplay = isDisplayValidExtended(
+			                                concept, display, displayLanguage);
+			                            if (!isValidDisplay) {
+			                                String correctDisplay = getDisplayForLanguage(concept, displayLanguage);
+			                                boolean isLenient = lenientDisplayValidation != null &&
+			                                                    lenientDisplayValidation.getValue();
+			                                if (isLenient) {
+			                                    return new ValidationResult(true, concept, cs, correctDisplay,
+			                                        ValidationErrorType.INVALID_DISPLAY_WARNING, null, null, null);
+			                                } else {
+			                                    return new ValidationResult(false, concept, cs, correctDisplay,
+			                                        ValidationErrorType.INVALID_DISPLAY, null, null, null);
+			                                }
+			                            }
+			                        }
+			                        String resolvedDisplay = getDisplayForLanguage(concept, displayLanguage);
+			                        return new ValidationResult(true, concept, cs, resolvedDisplay,
+			                            null, null, null, null);
+
+			                    } else {
+			                        // 代碼不存在於 Fragment CodeSystem
+			                        // result=true，帶 UNKNOWN_CODE_IN_FRAGMENT warning
+			                        return new ValidationResult(true, null, cs, null,
+			                            ValidationErrorType.UNKNOWN_CODE_IN_FRAGMENT, null, null, null);
+			                    }
+
+			                } catch (Exception e) {
+			                    // CodeSystem 找不到，繼續嘗試下一個 include
+			                }
+			            }
+			        }
+				
 		        if (lastErrorResult.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
 		            return lastErrorResult;
 		        }
@@ -1811,7 +1943,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 			for (ConceptSetComponent exclude : compose.getExclude()) {
 				ValidationResult result = validateCodeInConceptSet(exclude, code, system, display, 
 			                 	displayLanguage, abstractAllowed, false, systemVersion, activeOnly, 
-			                 	lenientDisplayValidation, membershipOnly);
+			                 	lenientDisplayValidation, membershipOnly, rootSupplements);
 				if (result.isValid()) {
 					return new ValidationResult(false, result.concept(), result.codeSystem(), 
 								result.display(), ValidationErrorType.CODE_NOT_IN_VALUESET, result.isInactive(), null, null);
@@ -1826,7 +1958,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		            									CodeType displayLanguage, BooleanType abstractAllowed,
 		            									StringType systemVersion, BooleanType activeOnly,
 		                                                BooleanType lenientDisplayValidation,
-		                                                boolean membershipOnly) {
+		                                                boolean membershipOnly,
+		                                                List<CodeSystem> rootSupplements) {
 		
     	for (ValueSetExpansionContainsComponent contains : expansion.getContains()) {
             ValidationResult result = validateCodeInExpansionContains(contains, code, system, display, 
@@ -2041,17 +2174,13 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         String codeValue = context.code() != null ? context.code().getValue() : "";
 
-        // 根據參數來源決定回傳格式
         if (context.originalCodeableConcept() != null) {
             result.addParameter("codeableConcept", context.originalCodeableConcept());
-            // codeableConcept 情況下，不添加單獨的 code 參數
         } else if ("codeableConcept".equals(context.parameterSource()) || 
                    context.parameterSource().startsWith("codeableConcept.coding")) {
             CodeableConcept codeableConcept = reconstructCodeableConcept(context);
             result.addParameter("codeableConcept", codeableConcept);
-            // codeableConcept 情況下，不添加單獨的 code 參數
         } else {
-            // 只有在不是 codeableConcept 的情況下才添加 code 參數
             if (context.code() != null) {
                 result.addParameter("code", context.code());
             }
@@ -2291,7 +2420,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                unknownSystemDetailsText = String.format("$external:2:%s$", systemUrl);
 	            }
 	            
-	            // Issue 1: None_of_the_provided_codes_are_in_the_value_set_one (總是第一個)
+	            // Issue 1: None_of_the_provided_codes_are_in_the_value_set_one
 	            var notInVsIssue = new OperationOutcomeIssueBuilder()
 	                .setSeverity(OperationOutcome.IssueSeverity.ERROR)
 	                .setCode(OperationOutcome.IssueType.CODEINVALID)
@@ -2328,7 +2457,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        }
         }
         
-        // 在添加到 Parameters 之前再次確保清除
         outcome.setText(null);
         outcome.setMeta(null);
         
@@ -2345,7 +2473,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             mainErrorMessage = "$external:4$";
         } else {
 	        if (isCodeParam) {
-	        	// code 參數：根據錯誤類型決定
 	            if (isSystemNotFound) {
 	                mainErrorMessage = String.format("$external:3:%s$", systemUrl);
 	            } else if (isCodeNotInValueSet) {
@@ -2376,7 +2503,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             UriType systemToReturn = null;
             
             if (context.system() != null && !context.system().isEmpty()) {
-            	// 確保轉換為 UriType
             	systemToReturn = new UriType(context.system().getValue());
             } 
             else if (codeSystem != null && codeSystem.hasUrl()) {
@@ -2757,7 +2883,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                                      CodeType code, StringType display, 
                                                      CodeType displayLanguage, BooleanType abstractAllowed,
                                                      CodeSystem codeSystem, BooleanType lenientDisplayValidation,
-                                                     boolean membershipOnly) {
+                                                     boolean membershipOnly,
+                                                     List<CodeSystem> rootSupplements) {
         
     	for (ConceptReferenceComponent concept : concepts) {
             if (code.getValue().equals(concept.getCode())) {
@@ -2771,11 +2898,20 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                                       ValidationErrorType.ABSTRACT_CODE_NOT_ALLOWED, null, null, null);
                         }
                         
+                        ConceptDefinitionComponent mergedConcept = mergeSupplementDesignations(
+                                fullConcept, code.getValue(), rootSupplements);
+                        
                         if (!membershipOnly && display != null && !display.isEmpty()) {
-                            boolean isValidDisplay = isDisplayValidExtended(fullConcept, display, displayLanguage);
+                        	// 合併 supplement designations 後再驗證
+                            
+                            boolean isValidDisplay = isDisplayValidExtended(mergedConcept, display, displayLanguage);
+                            
+                            //boolean isValidDisplay = isDisplayValidExtended(fullConcept, display, displayLanguage);
                             if (!isValidDisplay) {
-                                String correctDisplay = getDisplayForLanguage(fullConcept, displayLanguage);
-                                boolean isLenient = lenientDisplayValidation != null && lenientDisplayValidation.getValue();
+                                //String correctDisplay = getDisplayForLanguage(fullConcept, displayLanguage);
+                            	String correctDisplay = getDisplayForLanguage(mergedConcept, displayLanguage);
+                                
+                            	boolean isLenient = lenientDisplayValidation != null && lenientDisplayValidation.getValue();
                                 
                                 if (isLenient) {
                                     return new ValidationResult(true, fullConcept, codeSystem, correctDisplay, 
@@ -2787,7 +2923,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                             }
                         }
                         
-                        String resolvedDisplay = getDisplayForLanguage(fullConcept, displayLanguage);
+                        String resolvedDisplay = getDisplayForLanguage(mergedConcept, displayLanguage);
+                        
+                        // 檢查 concept 在此 ValueSet 中是否被標記為 deprecated
+                        boolean isDeprecatedInVs = isConceptDeprecatedInConceptReference(concept);
+                        if (isDeprecatedInVs) {
+                            return new ValidationResult(true, fullConcept, codeSystem, resolvedDisplay, 
+                                                      ValidationErrorType.CONCEPT_DEPRECATED_IN_VALUESET, 
+                                                      null, null, null);
+                        }
                         return new ValidationResult(true, fullConcept, codeSystem, resolvedDisplay, null, null, null, null);
                     }
                 }
@@ -2818,7 +2962,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             											StringType display, CodeType displayLanguage, 
             											BooleanType abstractAllowed, BooleanType activeOnly,
                                                         BooleanType lenientDisplayValidation,
-                                                        boolean membershipOnly) {
+                                                        boolean membershipOnly,
+                                                        List<CodeSystem> rootSupplements) {
 
     	ConceptDefinitionComponent concept = findConceptRecursive(codeSystem.getConcept(), code.getValue());
         if (concept == null) {
@@ -2834,7 +2979,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         
         // 檢查 display 是否正確
         if (!membershipOnly && display != null && !display.isEmpty()) {
+        	// 合併 supplement designations 後再驗證
+            ConceptDefinitionComponent mergedConcept = mergeSupplementDesignations(
+                concept, code.getValue(), rootSupplements);
+            
             boolean isValidDisplay = isDisplayValidExtended(concept, display, displayLanguage);
+            
             if (!isValidDisplay) {
                 String correctDisplay = getDisplayForLanguage(concept, displayLanguage);
                 boolean isLenient = lenientDisplayValidation != null && lenientDisplayValidation.getValue();
@@ -2891,44 +3041,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
         }
-     /*   if (!membershipOnly && display != null && !display.isEmpty()) {
-            boolean isValidDisplay = isDisplayValidExtended(concept, display, displayLanguage);
-            if (!isValidDisplay) {
-                String correctDisplay = getDisplayForLanguage(concept, displayLanguage);
-                boolean isLenient = lenientDisplayValidation != null && lenientDisplayValidation.getValue();
-                
-                if (isLenient) {
-                    return new ValidationResult(true, concept, codeSystem, correctDisplay, 
-                                              ValidationErrorType.INVALID_DISPLAY_WARNING, 
-                                              isInactive, null, null);
-                } else {
-                	// 在這裡添加檢查：是否因為語言不支援而導致 display 錯誤
-                    if (displayLanguage != null && !displayLanguage.isEmpty()) {
-                        // 檢查是否為多語言系統
-                        boolean isMultilingualCodeSystem = codeSystem.hasLanguage() || 
-                                                           concept.hasDesignation() || 
-                                                           codeSystemHasAnyDesignations(codeSystem);
-                        
-                        if (isMultilingualCodeSystem) {
-                            // 檢查請求的語言是否有 designation
-                            boolean hasRequestedLanguageDesignation = hasDesignationForLanguageList(concept, displayLanguage.getValue());
-                            
-                            // 如果沒有該語言的 designation，返回語言錯誤
-                            if (!hasRequestedLanguageDesignation) {
-                                return new ValidationResult(false, concept, codeSystem, correctDisplay, 
-                                                          ValidationErrorType.INVALID_DISPLAY_WITH_LANGUAGE_ERROR, 
-                                                          isInactive, null, null);
-                            }
-                        }
-                    }
-                    
-                    return new ValidationResult(false, concept, codeSystem, correctDisplay, 
-                                              ValidationErrorType.INVALID_DISPLAY, 
-                                              isInactive, null, null);
-                }
-            }
-        }*/
-        
+
         // display 正確（或沒有提供），檢查語言支援
         if (displayLanguage != null && !displayLanguage.isEmpty()) {
             String requestedLanguage = displayLanguage.getValue();
@@ -2994,9 +3107,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         // 3. 檢查 CodeSystem 是否有明確的語言設定（表示它是為特定語言設計的）
                         boolean codeSystemHasLanguage = codeSystem.hasLanguage() && codeSystem.getLanguage() != null;
                         
-                        // 判斷是否為多語言系統：
-                        // - concept 或其他 concept 有 designation，或
-                        // - CodeSystem 有明確的語言設定（即使沒有 designation）
+                        // 判斷是否為多語言系統
                         boolean isMultilingualCodeSystem = conceptHasAnyDesignation || 
                                                            codeSystemHasDesignations || 
                                                            codeSystemHasLanguage;
@@ -3041,7 +3152,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 return true;
             }
             
-            // 遞歸檢查子 concept
             if (checkConceptsForAnyDesignation(concept.getConcept())) {
                 return true;
             }
@@ -3096,26 +3206,33 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
 	 private boolean isDisplayValidExtended(ConceptDefinitionComponent concept, StringType display, 
 	                                      CodeType displayLanguage) {
+		 
 		 if (display == null || display.isEmpty()) {
 		        return true;
 		    }
 		    
 		    String displayValue = display.getValue();
 		    
+		    // 1. 先比對主要 display
 		    if (concept.hasDisplay() && displayValue.equalsIgnoreCase(concept.getDisplay())) {
 		        return true;
 		    }
 		    
+		    // 2. 無論是否有 displayLanguage，都掃描所有 designation
 		    if (displayLanguage == null || displayLanguage.isEmpty()) {
+		        // 沒有指定語言時，掃描所有 designation（包含 supplement 合併進來的）
+		        for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
+		            if (displayValue.equalsIgnoreCase(desig.getValue())) {
+		                return true;
+		            }
+		        }
 		        return false;
 		    }
 		    
+		    // 3. 有指定語言時，只比對該語言的 designation
 		    String[] languages = displayLanguage.getValue().split(",");
-		    
 		    for (String lang : languages) {
 		        lang = lang.trim();
-		        
-		        // 檢查該語言的 designation
 		        for (ConceptDefinitionDesignationComponent desig : concept.getDesignation()) {
 		            if (lang.equalsIgnoreCase(desig.getLanguage()) && 
 		                displayValue.equalsIgnoreCase(desig.getValue())) {
@@ -3558,34 +3675,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         
         return outcome;
     }
+    
+    private String extractValueSetUrlFromException(
+            Exception e,
+            String url,
+            String valueSet) {
 
-    private String extractValueSetUrlFromException(ResourceNotFoundException e, 
-                                                  UriType url, 
-                                                  CanonicalType urlCanonical,
-                                                  UriType valueSetUrl, 
-                                                  CanonicalType valueSetCanonical,
-                                                  UrlType urlParam,
-                                                  UrlType valueSetUrlType) {
-        UriType resolvedUrl = resolveUriParameter(url, urlCanonical, urlParam);
-        if (resolvedUrl != null && !resolvedUrl.isEmpty()) {
-            return resolvedUrl.getValue();
-        }
-        
-        UriType resolvedValueSetUrl = resolveUriParameter(valueSetUrl, valueSetCanonical, valueSetUrlType);
-        if (resolvedValueSetUrl != null && !resolvedValueSetUrl.isEmpty()) {
-            return resolvedValueSetUrl.getValue();
-        }
+        if (url != null) return url;
+        if (valueSet != null) return valueSet;
 
-        String message = e.getMessage();
-        if (message != null && message.contains("'") && message.contains("not found")) {
-            int start = message.indexOf("'") + 1;
-            int end = message.indexOf("'", start);
-            if (end > start) {
-                return message.substring(start, end);
-            }
-        }
-        
-        return null;
+        return e.getMessage();
     }
     
     private OperationOutcome buildInvalidRequestOutcome(String errorMessage) {
@@ -3996,31 +4095,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private Parameters buildCodeSystemVersionNotFoundError( ValidationParams params, ValueSet targetValueSet,
 												            StringType effectiveSystemVersion,
 												            CodeSystemVersionNotFoundException versionException) {
-        
-    	// === 快速測試開始 ===
-        System.out.println("=== DEBUG buildCodeSystemVersionNotFoundError ===");
-        System.out.println("params.parameterSource() = " + params.parameterSource());
-        System.out.println("effectiveSystemVersion = " + (effectiveSystemVersion != null ? effectiveSystemVersion.getValue() : "null"));
-        
-        if (params.originalCoding() != null) {
-            System.out.println("originalCoding.system = " + params.originalCoding().getSystem());
-            System.out.println("originalCoding.code = " + params.originalCoding().getCode());
-            System.out.println("originalCoding.version = " + (params.originalCoding().hasVersion() ? params.originalCoding().getVersion() : "null"));
-        }
-        
-        if (params.originalCodeableConcept() != null) {
-            System.out.println("originalCodeableConcept has " + params.originalCodeableConcept().getCoding().size() + " codings");
-            for (int i = 0; i < params.originalCodeableConcept().getCoding().size(); i++) {
-                Coding c = params.originalCodeableConcept().getCoding().get(i);
-                System.out.println("  coding[" + i + "].version = " + (c.hasVersion() ? c.getVersion() : "null"));
-            }
-        }
-        
-        boolean hasExplicit = hasExplicitlyProvidedVersion(params);
-        System.out.println("hasExplicitlyProvidedVersion() = " + hasExplicit);
-        System.out.println("=== END DEBUG ===");
-        // === 快速測試結束 ===
-    	
+            	
     	Parameters result = new Parameters();
         
         // 判斷參數來源
@@ -4044,7 +4119,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         String codeValue = params.code() != null ? params.code().getValue() : "";
         
         // 判斷是否有明確指定版本
-        // boolean hasExplicitVersion = requestedVersion != null && !requestedVersion.isEmpty();
         boolean hasExplicitVersion = hasExplicitlyProvidedVersion(params);
         
         // CodeSystem 完全不存在 (所有參數類型都適用)
@@ -4155,12 +4229,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             coding3.setCode("this-code-not-in-vs");
             
             if (hasExplicitVersion) {
-                // 有版本：使用完整訊息包含版本號
                 details3.setText(String.format(
                     "The provided code '%s|%s#%s' was not found in the value set '%s|%s'",
                     systemUrl, requestedVersion, codeValue, valueSetUrl, valueSetVersion));
             } else {
-                // 沒有版本：使用佔位符
                 details3.setText(String.format("$external:1:%s#%s$", systemUrl, codeValue));
             }
             notInVsIssue.setDetails(details3);
@@ -4175,7 +4247,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             String message;
             if (isCodeableConcept) {
             	if (hasExplicitVersion) {
-                    // CodeableConcept 且有版本：使用完整訊息
                     message = String.format(
                         "A definition for CodeSystem '%s' version '%s' could not be found, " +
                         "so the code cannot be validated. No versions of this code system are known; " +
@@ -4185,12 +4256,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         valueSetUrl, valueSetVersion,
                         systemUrl, requestedVersion, codeValue, valueSetUrl, valueSetVersion);
                 } else {
-                    // CodeableConcept 但沒有版本：使用佔位符
                     message = String.format("$external:3:%s$", systemUrl);
                 }
             } else {
             	if (hasExplicitVersion) {
-                    // 非 CodeableConcept 且有版本：使用完整訊息
                     message = String.format(
                         "A definition for CodeSystem '%s' version '%s' could not be found, " +
                         "so the code cannot be validated. No versions of this code system are known; " +
@@ -4198,7 +4267,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         systemUrl, requestedVersion,
                         systemUrl, requestedVersion, codeValue, valueSetUrl, valueSetVersion);
                 } else {
-                    // 非 CodeableConcept 且沒有版本：使用佔位符
                     message = String.format("$external:3:%s$", systemUrl);
                 }
             }
@@ -4214,7 +4282,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
             
-            // 7. x-unknown-system 參數 (注意:沒有版本號)
+            // 7. x-unknown-system 參數
             result.addParameter("x-unknown-system", new CanonicalType(systemUrl));
             
             return result;
@@ -4251,7 +4319,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         if (params.display() != null && !params.display().isEmpty()) {
             displayValue = params.display().getValue();
         }
-        // 如果沒有,從 ValueSet 使用的版本(存在的版本)中查找
+        // 如果沒有從 ValueSet 使用的版本(存在的版本)中查找
         else if (params.system() != null && params.code() != null) {
             try {
                 CodeSystem vsCodeSystem = findCodeSystemByUrl(
@@ -4268,7 +4336,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
                 }
             } catch (Exception e) {
-                // 如果找不到,保持為 null
             }
         }
         
@@ -4398,45 +4465,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             !params.originalCoding().getVersion().isEmpty()) {
             return true;
         }
-        
-        // 除錯：檢查 originalCoding
-        if (params.originalCoding() != null) {
-            System.out.println("DEBUG: originalCoding exists");
-            System.out.println("DEBUG: originalCoding.hasVersion() = " + params.originalCoding().hasVersion());
-            if (params.originalCoding().hasVersion()) {
-                System.out.println("DEBUG: originalCoding.getVersion() = " + params.originalCoding().getVersion());
-                System.out.println("DEBUG: originalCoding.getVersion().isEmpty() = " + params.originalCoding().getVersion().isEmpty());
-            }
-        } else {
-            System.out.println("DEBUG: originalCoding is null");
-        }
-        
-        // 除錯：檢查 originalCodeableConcept
-        if (params.originalCodeableConcept() != null) {
-            System.out.println("DEBUG: originalCodeableConcept exists");
-            System.out.println("DEBUG: originalCodeableConcept.getCoding().size() = " + params.originalCodeableConcept().getCoding().size());
-            for (int i = 0; i < params.originalCodeableConcept().getCoding().size(); i++) {
-                Coding c = params.originalCodeableConcept().getCoding().get(i);
-                System.out.println("DEBUG: coding[" + i + "].hasVersion() = " + c.hasVersion());
-                if (c.hasVersion()) {
-                    System.out.println("DEBUG: coding[" + i + "].getVersion() = " + c.getVersion());
-                }
-            }
-        } else {
-            System.out.println("DEBUG: originalCodeableConcept is null");
-        }
-        
+               
         // 檢查 codeableConcept 中是否有明確的 version
         if (params.originalCodeableConcept() != null) {
             for (Coding c : params.originalCodeableConcept().getCoding()) {
                 if (c.hasVersion() && !c.getVersion().isEmpty()) {
-                	System.out.println("DEBUG: Returning true from originalCodeableConcept coding");
-                    return true;
+                	return true;
                 }
             }
         }
         
-        System.out.println("DEBUG: Returning false");
         return false;
     }
     
@@ -4472,7 +4510,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                                  CodeType code, StringType display) {
         // 檢查當前 contains
         if (code.getValue().equals(contains.getCode())) {
-            // 如果有 display 要求,也要匹配
             if (display == null || !display.hasValue() || 
                 (contains.hasDisplay() && display.getValue().equalsIgnoreCase(contains.getDisplay()))) {
                 if (contains.hasSystem()) {
@@ -4481,7 +4518,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
-        // 遞歸檢查子概念
         for (ValueSetExpansionContainsComponent child : contains.getContains()) {
             UriType result = findSystemInExpansionContains(child, code, display);
             if (result != null) {
@@ -4494,10 +4530,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
     private UriType inferSystemFromCompose(ValueSetComposeComponent compose, 
                                           CodeType code, StringType display) {
-        // 遍歷所有 include
         for (ConceptSetComponent include : compose.getInclude()) {
             if (include.hasSystem()) {
-                // 檢查這個 system 中是否包含該 code
                 if (isCodeInConceptSet(include, code, display)) {
                     return new UriType(include.getSystem());
                 }
@@ -4561,7 +4595,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		String valueSetVersion = targetValueSet != null && targetValueSet.hasVersion() ? 
 				targetValueSet.getVersion() : "5.0.0";
 		
-		// 嘗試找出可能的 system (用於錯誤訊息)
 		String possibleSystem = findPossibleSystemFromValueSet(targetValueSet);
 		
 		// Issue 1: Code not in ValueSet
@@ -4856,21 +4889,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    }
 	    
 	    if (isMultiLanguage) {
-	    	// 使用 $external 佔位符
 	        detailsText = String.format("$external:1:%s$", incorrectDisplay);
-	        // 對於 coding 和 codeableConcept，message 都使用 $external:2
-	        // 只有 code 參數才使用 $external:1
 	        if (isCodeParam) {
 	            messageText = String.format("$external:1:%s$", incorrectDisplay);
 	        } else {
 	            messageText = String.format("$external:2:%s$", incorrectDisplay);
 	        }
 	    } else {
-	        // 完整說明
 	        String systemUrl = params.system() != null ? params.system().getValue() : "";
 	        String codeValue = params.code() != null ? params.code().getValue() : "";
 	        
-	        // 決定是否顯示語言標記
 	        boolean shouldShowLanguageTag = false;
 	        String languageToShow = displayLanguageValue;
 	        
@@ -4901,13 +4929,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        
 	        // 組合錯誤訊息
 	        if (shouldShowLanguageTag) {
-	            // 有語言標記 - 格式: Valid display is 'Code1' (en)
 	            detailsText = String.format(
 	                "Wrong Display Name '%s' for %s#%s. Valid display is '%s' (%s) (for the language(s) '%s')",
 	                incorrectDisplay, systemUrl, codeValue, correctDisplay, 
 	                languageToShow, displayLanguageValue);
 	        } else {
-	            // 沒有語言標記
 	            detailsText = String.format(
 	                "Wrong Display Name '%s' for %s#%s. Valid display is '%s' (for the language(s) '%s')",
 	                incorrectDisplay, systemUrl, codeValue, correctDisplay, displayLanguageValue);
@@ -4933,12 +4959,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    String displayExpression;
 	    
 	    if (isCodeableConcept) {
-	        // codeableConcept 參數：使用 CodeableConcept.coding[index].display
 	        int codingIndex = extractCodingIndex(params.parameterSource());
 	        displayLocation = String.format("CodeableConcept.coding[%d].display", codingIndex);
 	        displayExpression = String.format("CodeableConcept.coding[%d].display", codingIndex);
 	    } else if (isCoding) {
-	        // coding 參數：使用 Coding.display
 	        displayLocation = "Coding.display";
 	        displayExpression = "Coding.display";
 	    } else {
@@ -4953,7 +4977,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    
 	    Extension messageIdExt = new Extension();
 	    messageIdExt.setUrl(OperationOutcomeMessageId.MESSAGE_ID_EXTENSION_URL);
-	    // 根據是否為空白字元差異選擇不同的 message ID
 	    String messageId = isWhitespaceDifference ? 
 	            "Display_Name_WS_for__should_be_one_of__instead_of" :
 	            OperationOutcomeMessageId.DISPLAY_NAME_SHOULD_BE_ONE_OF;
@@ -5204,7 +5227,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        result.addParameter("code", params.code());
 	    }
 	    
-	    // 2. codeableConcept 參數 - 範例三特有
+	    // 2. codeableConcept 參數
 	    if (isCodeableConcept && params.originalCodeableConcept() != null) {
 	        result.addParameter("codeableConcept", params.originalCodeableConcept());
 	    }
@@ -5222,7 +5245,18 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        }
 	    }
 	    
-	    String vsVersion = valueSetUsedVersion != null ? valueSetUsedVersion : "0.1.0";
+	    String vsVersion = valueSetUsedVersion;
+	    if (vsVersion == null) {
+	        try {
+	            List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
+	            if (!allVersions.isEmpty() && allVersions.get(0).hasVersion()) {
+	                vsVersion = allVersions.get(0).getVersion();
+	            }
+	        } catch (Exception ex) {
+	            // ignore
+	        }
+	        if (vsVersion == null) vsVersion = "";
+	    }
 	    
 	    // 嘗試從 ValueSet 使用的版本(實際存在的版本)獲取 display
 	    String displayValue = null;
@@ -5232,7 +5266,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        displayValue = params.display().getValue();
 	    }
 	    
-	    // 如果沒有,從 ValueSet 使用的版本(存在的版本)中查找
+	    // 如果沒有從 ValueSet 使用的版本(存在的版本)中查找
 	    else if (params.system() != null && params.code() != null) {
 	        try {
 	            CodeSystem vsCodeSystem = findCodeSystemByUrl(
@@ -5399,7 +5433,18 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        }
 	    }
 	    
-	    String vsVersion = valueSetUsedVersion != null ? valueSetUsedVersion : "0.1.0";
+	    String vsVersion = valueSetUsedVersion;
+	    if (vsVersion == null) {
+	        try {
+	            List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
+	            if (!allVersions.isEmpty() && allVersions.get(0).hasVersion()) {
+	                vsVersion = allVersions.get(0).getVersion();
+	            }
+	        } catch (Exception ex) {
+	            // ignore
+	        }
+	        if (vsVersion == null) vsVersion = "";
+	    }
 	    
 	    // 3. 嘗試從兩個版本獲取 display
 	    String displayValue = null;
@@ -5573,12 +5618,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
 	private boolean checkConceptsForLanguage(List<ConceptDefinitionComponent> concepts, String language) {
 	    for (ConceptDefinitionComponent concept : concepts) {
-	        // 檢查當前 concept
 	        if (hasDesignationForLanguage(concept, language)) {
 	            return true;
 	        }
 	        
-	        // 遞歸檢查子 concept
 	        if (checkConceptsForLanguage(concept.getConcept(), language)) {
 	            return true;
 	        }
@@ -5684,7 +5727,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	        return false;
 	    }
 	    
-	    // 檢查是否為 "-" (範例二的情況)
+	    // 檢查是否為 "-"
 	    if ("-".equals(languageCode)) {
 	        return false;
 	    }
@@ -5726,7 +5769,6 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		details.setText(String.format("Invalid displayLanguage: '%s'", languageValue));
 		issue.setDetails(details);
 		
-		// 移除 narratives
 		outcome.setText(null);
 		outcome.setMeta(null);
 		
@@ -5828,18 +5870,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    details.setText(String.format("Invalid displayLanguage: '%s'", languageValue));
 	    issue.setDetails(details);
 	    
-	    // 確保沒有 narrative
 	    outcome.setText(null);
 	    outcome.setMeta(null);
 	    
 	    return new InvalidRequestException("Invalid displayLanguage parameter", outcome);
 	}
 	
-	private Parameters buildSupplementNotFoundError(
-	        ValidationParams params,
-	        ValueSet targetValueSet,
-	        StringType effectiveSystemVersion,
-	        List<String> missingSupplements) {
+	private Parameters buildSupplementNotFoundError(ValidationParams params, ValueSet targetValueSet,
+											        StringType effectiveSystemVersion,
+											        List<String> missingSupplements) {
 	    
 	    Parameters result = new Parameters();
 	    
@@ -5859,7 +5898,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    var supplementIssue = outcome.addIssue();
 	    supplementIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
 	    // 根據實際情況選擇 code: business-rule 或 not-found
-	    supplementIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+	    //supplementIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+	    supplementIssue.setCode(OperationOutcome.IssueType.BUSINESSRULE);
 	    
 	    CodeableConcept details = new CodeableConcept();
 	    Coding coding = details.addCoding();
@@ -5886,5 +5926,474 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    }
 	    
 	    return result;
+	}
+	
+	private Parameters buildSystemIsSupplementError(ValidationParams params,
+		            								ValueSet targetValueSet,
+		            								StringType effectiveSystemVersion) {
+		Parameters result = new Parameters();
+		
+		// 1. code 參數
+		if (params.code() != null) {
+			result.addParameter("code", params.code());
+		}
+		
+		// 2. 建立 OperationOutcome
+		OperationOutcome outcome = new OperationOutcome();
+		outcome.setMeta(null);
+		outcome.setText(null);
+		
+		String systemUrl = params.system() != null ? params.system().getValue() : "";
+		
+		// 取得 CodeSystem 版本資訊（用於錯誤訊息）
+		String systemVersion = null;
+		try {
+			CodeSystem cs = findCodeSystemByUrl(systemUrl, null);
+			if (cs != null && cs.hasVersion()) {
+				systemVersion = cs.getVersion();
+			}
+		} catch (Exception e) { }
+		
+		String systemWithVersion = systemVersion != null ? 
+		systemUrl + "|" + systemVersion : systemUrl;
+		
+		// Issue 1: supplement 不能用作 Coding.system
+		var supplementIssue = outcome.addIssue();
+		supplementIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		supplementIssue.setCode(OperationOutcome.IssueType.INVALID);
+		
+		Extension messageIdExt = new Extension();
+		messageIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+		messageIdExt.setValue(new StringType("CODESYSTEM_CS_NO_SUPPLEMENT"));
+		supplementIssue.addExtension(messageIdExt);
+		
+		CodeableConcept details = new CodeableConcept();
+		Coding coding = details.addCoding();
+		coding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
+		coding.setCode("invalid-data");
+		details.setText(String.format(
+		"CodeSystem %s is a supplement, so can't be used as a value in Coding.system",
+		systemWithVersion));
+		supplementIssue.setDetails(details);
+		
+		supplementIssue.addLocation("Coding.system");
+		supplementIssue.addExpression("Coding.system");
+		
+		// 3. issues 參數
+		result.addParameter().setName("issues").setResource(outcome);
+		
+		// 4. message 參數
+		result.addParameter("message", new StringType(String.format(
+		"CodeSystem %s is a supplement, so can't be used as a value in Coding.system",
+		systemWithVersion)));
+		
+		// 5. result 參數
+		result.addParameter("result", new BooleanType(false));
+		
+		// 6. system 參數
+		if (params.system() != null) {
+			result.addParameter("system", params.system());
+		}
+		
+		// 7. x-caused-by-unknown-system
+		if (params.system() != null) {
+			result.addParameter("x-caused-by-unknown-system",
+					new CanonicalType(systemUrl));
+		}
+		
+		return result;
+	}
+	
+	private boolean isConceptDeprecatedInConceptReference(ConceptReferenceComponent concept) {
+	    for (Extension ext : concept.getExtension()) {
+	        // 標準 FHIR extension：concept-status 或 concept-definition
+	        if ("http://hl7.org/fhir/StructureDefinition/valueset-concept-status".equals(ext.getUrl())) {
+	            if (ext.getValue() instanceof CodeType) {
+	                String status = ((CodeType) ext.getValue()).getValue();
+	                if ("deprecated".equals(status)) {
+	                    return true;
+	                }
+	            }
+	        }
+	        // 也檢查 deprecated extension
+	        if ("http://hl7.org/fhir/StructureDefinition/valueset-deprecated".equals(ext.getUrl())) {
+	            if (ext.getValue() instanceof BooleanType) {
+	                return ((BooleanType) ext.getValue()).getValue();
+	            }
+	        }
+	    }
+	    return false;
+	}
+	
+	private Parameters buildSuccessResponseWithDeprecatedWarning(
+	        ValidationParams successfulParams,
+	        String matchedDisplay,
+	        CodeSystem matchedCodeSystem,
+	        ValueSet targetValueSet,
+	        StringType effectiveSystemVersion) {
+	    
+	    Parameters result = new Parameters();
+	    
+	    // 1. code 參數
+	    if (successfulParams != null && successfulParams.code() != null) {
+	        result.addParameter("code", successfulParams.code());
+	    }
+	    
+	    // 2. display 參數 - 使用正確的 display（忽略使用者傳入的錯誤 display）
+	    if (matchedDisplay != null) {
+	        result.addParameter("display", new StringType(matchedDisplay));
+	    }
+	    
+	    // 3. 建立 OperationOutcome with deprecated warning
+	    OperationOutcome outcome = new OperationOutcome();
+	    outcome.setMeta(null);
+	    outcome.setText(null);
+	    
+	    String systemUrl = successfulParams != null && successfulParams.system() != null
+	        ? successfulParams.system().getValue() : "";
+	    String codeValue = successfulParams != null && successfulParams.code() != null
+	        ? successfulParams.code().getValue() : "";
+	    String valueSetUrl = targetValueSet != null && targetValueSet.hasUrl()
+	        ? targetValueSet.getUrl() : "";
+	    String valueSetVersion = targetValueSet != null && targetValueSet.hasVersion()
+	        ? targetValueSet.getVersion() : "5.0.0";
+	    
+	    var deprecatedIssue = outcome.addIssue();
+	    deprecatedIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+	    deprecatedIssue.setCode(OperationOutcome.IssueType.BUSINESSRULE);
+	    
+	    //CONCEPT_DEPRECATED_IN_VALUESET extension
+	    Extension messageIdExt = new Extension();
+	    messageIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+	    messageIdExt.setValue(new StringType("CONCEPT_DEPRECATED_IN_VALUESET"));
+	    deprecatedIssue.addExtension(messageIdExt);
+	    
+	    CodeableConcept details = new CodeableConcept();
+	    Coding coding = details.addCoding();
+	    coding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
+	    coding.setCode("code-comment");
+	    details.setText(String.format(
+	        "The presence of the concept '%s' in the system '%s' in the value set %s|%s " +
+	        "is marked with a status of deprecated and its use should be reviewed",
+	        codeValue, systemUrl, valueSetUrl, valueSetVersion));
+	    deprecatedIssue.setDetails(details);
+	    
+	    deprecatedIssue.addLocation("Coding.code");
+	    deprecatedIssue.addExpression("Coding.code");
+	    
+	    // 4. issues 參數
+	    result.addParameter().setName("issues").setResource(outcome);
+	    
+	    // 5. result 參數 - 仍為 true（deprecated 不影響合法性）
+	    result.addParameter("result", new BooleanType(true));
+	    
+	    // 6. system 參數
+	    if (successfulParams != null && successfulParams.system() != null 
+	            && !successfulParams.system().isEmpty()) {
+	        result.addParameter("system", successfulParams.system());
+	    } else if (matchedCodeSystem != null && matchedCodeSystem.hasUrl()) {
+	        result.addParameter("system", new UriType(matchedCodeSystem.getUrl()));
+	    }
+	    
+	    // 7. version 參數
+	    String versionToReturn = null;
+	    if (effectiveSystemVersion != null && !effectiveSystemVersion.isEmpty()) {
+	        versionToReturn = effectiveSystemVersion.getValue();
+	    } else if (matchedCodeSystem != null && matchedCodeSystem.hasVersion()) {
+	        versionToReturn = matchedCodeSystem.getVersion();
+	    }
+	    if (versionToReturn != null) {
+	        result.addParameter("version", new StringType(versionToReturn));
+	    }
+	    
+	    return result;
+	}
+	
+	private ConceptDefinitionComponent mergeSupplementDesignations(
+	        ConceptDefinitionComponent originalConcept,
+	        String code,
+	        List<CodeSystem> supplements) {
+	    
+	    if (supplements == null || supplements.isEmpty()) {
+	        return originalConcept;
+	    }
+	    
+	    // 收集所有 supplement 中對應 code 的 designation
+	    List<ConceptDefinitionDesignationComponent> supplementDesignations = new ArrayList<>();
+	    for (CodeSystem supplement : supplements) {
+	        ConceptDefinitionComponent suppConcept = findConceptRecursive(
+	            supplement.getConcept(), code);
+	        if (suppConcept != null) {
+	            supplementDesignations.addAll(suppConcept.getDesignation());
+	        }
+	    }
+	   	    
+	    if (supplementDesignations.isEmpty()) {
+	        return originalConcept;
+	    }
+	    
+	    // 建立合併後的虛擬 concept（不修改原始物件）
+	    ConceptDefinitionComponent merged = new ConceptDefinitionComponent();
+	    merged.setCode(originalConcept.getCode());
+	    merged.setDisplay(originalConcept.getDisplay());
+	    merged.setDefinition(originalConcept.getDefinition());
+	    merged.getProperty().addAll(originalConcept.getProperty());
+	    
+	    // 加入原始 designations
+	    merged.getDesignation().addAll(originalConcept.getDesignation());
+	    // 加入 supplement designations
+	    merged.getDesignation().addAll(supplementDesignations);
+	    
+	    return merged;
+	}
+	
+	private Parameters buildFragmentUnknownCodeResponse(
+	        ValidationParams params,
+	        CodeSystem fragmentCodeSystem,
+	        ValueSet targetValueSet,
+	        StringType effectiveSystemVersion) {
+
+	    Parameters result = new Parameters();
+
+	    boolean isCoding = "coding".equals(params.parameterSource());
+	    boolean isCodeableConcept = params.originalCodeableConcept() != null ||
+	                                "codeableConcept".equals(params.parameterSource()) ||
+	                                params.parameterSource().startsWith("codeableConcept.coding");
+
+	    // 1. code 參數
+	    if (params.code() != null) {
+	        result.addParameter("code", params.code());
+	    }
+
+	    // 2. codeableConcept 參數（如果輸入是 codeableConcept）
+	    if (isCodeableConcept && params.originalCodeableConcept() != null) {
+	        result.addParameter("codeableConcept", params.originalCodeableConcept());
+	    }
+
+	    // 3. 建立 OperationOutcome，severity = warning
+	    OperationOutcome outcome = new OperationOutcome();
+	    outcome.setMeta(null);
+	    outcome.setText(null);
+
+	    String systemUrl = fragmentCodeSystem != null && fragmentCodeSystem.hasUrl()
+	            ? fragmentCodeSystem.getUrl()
+	            : (params.system() != null ? params.system().getValue() : "");
+
+	    String systemVersion = null;
+	    if (effectiveSystemVersion != null && !effectiveSystemVersion.isEmpty()) {
+	        systemVersion = effectiveSystemVersion.getValue();
+	    } else if (fragmentCodeSystem != null && fragmentCodeSystem.hasVersion()) {
+	        systemVersion = fragmentCodeSystem.getVersion();
+	    }
+
+	    String codeValue = params.code() != null ? params.code().getValue() : "";
+
+	    // 決定 location / expression 路徑
+	    String codeLocation;
+	    if (isCodeableConcept) {
+	        int idx = extractCodingIndex(params.parameterSource());
+	        codeLocation = String.format("CodeableConcept.coding[%d].code", idx);
+	    } else if (isCoding) {
+	        codeLocation = "Coding.code";
+	    } else {
+	        codeLocation = "code";
+	    }
+
+	    // Issue: UNKNOWN_CODE_IN_FRAGMENT warning
+	    var fragmentIssue = outcome.addIssue();
+	    fragmentIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+	    fragmentIssue.setCode(OperationOutcome.IssueType.CODEINVALID);
+
+	    Extension messageIdExt = new Extension();
+	    messageIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+	    messageIdExt.setValue(new StringType("UNKNOWN_CODE_IN_FRAGMENT"));
+	    fragmentIssue.addExtension(messageIdExt);
+
+	    CodeableConcept details = new CodeableConcept();
+	    Coding txCoding = details.addCoding();
+	    txCoding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
+	    txCoding.setCode("invalid-code");
+
+	    String versionDisplay = systemVersion != null ? " version '" + systemVersion + "'" : "";
+	    details.setText(String.format(
+	        "Unknown Code '%s' in the CodeSystem '%s'%s" +
+	        " - note that the code system is labeled as a fragment, so the code may be valid in some other fragment",
+	        codeValue, systemUrl, versionDisplay));
+	    fragmentIssue.setDetails(details);
+
+	    fragmentIssue.addLocation(codeLocation);
+	    fragmentIssue.addExpression(codeLocation);
+
+	    // 4. issues 參數
+	    result.addParameter().setName("issues").setResource(outcome);
+
+	    // 5. result = true（Fragment 寬鬆驗證）
+	    result.addParameter("result", new BooleanType(true));
+
+	    // 6. system 參數
+	    if (!systemUrl.isEmpty()) {
+	        result.addParameter("system", new UriType(systemUrl));
+	    }
+
+	    // 7. version 參數
+	    if (systemVersion != null) {
+	        result.addParameter("version", new StringType(systemVersion));
+	    }
+
+	    return result;
+	}
+	
+	private boolean isCodeSystemFragment(CodeSystem codeSystem) {
+	    if (codeSystem == null) {
+	        return false;
+	    }
+	    // 檢查 CodeSystem.content == fragment
+	    if (codeSystem.hasContent() && 
+	        codeSystem.getContent() == CodeSystem.CodeSystemContentMode.FRAGMENT) {
+	        return true;
+	    }
+	    // 也檢查 extension
+	    for (Extension ext : codeSystem.getExtension()) {
+	        if ("http://hl7.org/fhir/StructureDefinition/codesystem-fragment".equals(ext.getUrl())) {
+	            return true;
+	        }
+	    }
+	    return false;
+	}
+	
+	private Parameters buildSuccessResponseWithInactiveWarning( ValidationParams successfulParams,
+														        String matchedDisplay,
+														        CodeSystem matchedCodeSystem,
+														        ValueSet targetValueSet,
+														        StringType effectiveSystemVersion,
+														        String conceptStatus) {
+
+	    Parameters result = new Parameters();
+
+	    // 1. code 參數
+	    if (successfulParams != null && successfulParams.code() != null) {
+	        result.addParameter("code", successfulParams.code());
+	    }
+
+	    // 2. display 參數
+	    String displayToReturn = null;
+	    if (successfulParams != null && successfulParams.display() != null &&
+	            !successfulParams.display().isEmpty()) {
+	        displayToReturn = successfulParams.display().getValue();
+	    } else if (matchedDisplay != null) {
+	        displayToReturn = matchedDisplay;
+	    }
+	    if (displayToReturn != null) {
+	        result.addParameter("display", new StringType(displayToReturn));
+	    }
+
+	    // 3. inactive 參數
+	    result.addParameter("inactive", new BooleanType(true));
+
+	    // 4. 建立 OperationOutcome（INACTIVE_CONCEPT_FOUND warning）
+	    OperationOutcome outcome = new OperationOutcome();
+	    outcome.setMeta(null);
+	    outcome.setText(null);
+
+	    String codeValue = successfulParams != null && successfulParams.code() != null
+	            ? successfulParams.code().getValue() : "";
+	    
+	    // 依實際 status 組合警告訊息
+	    String statusLabel = (conceptStatus != null && !conceptStatus.isEmpty())
+	            ? conceptStatus : "inactive";
+	    String warningText = String.format(
+	            "The concept '%s' has a status of %s and its use should be reviewed",
+	            codeValue, statusLabel);
+
+	    var inactiveIssue = outcome.addIssue();
+	    inactiveIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+	    inactiveIssue.setCode(OperationOutcome.IssueType.BUSINESSRULE);
+
+	    Extension messageIdExt = new Extension();
+	    messageIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+	    messageIdExt.setValue(new StringType("INACTIVE_CONCEPT_FOUND"));
+	    inactiveIssue.addExtension(messageIdExt);
+
+	    CodeableConcept details = new CodeableConcept();
+	    Coding coding = details.addCoding();
+	    coding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
+	    coding.setCode("code-comment");
+	    details.setText(String.format(
+	            "The concept '%s' has a status of inactive and its use should be reviewed",
+	            codeValue));
+	    inactiveIssue.setDetails(details);
+
+	    inactiveIssue.addLocation("Coding");
+	    inactiveIssue.addExpression("Coding");
+
+	    // 5. issues 參數
+	    result.addParameter().setName("issues").setResource(outcome);
+
+	    // 6. message 參數
+	    result.addParameter("message", new StringType(warningText));
+	    /*result.addParameter("message", new StringType(String.format(
+	            "The concept '%s' has a status of inactive and its use should be reviewed",
+	            codeValue)));*/
+
+	    // 7. result = true（inactive 不影響合法性，仍通過驗證）
+	    result.addParameter("result", new BooleanType(true));
+	    
+	    // 8. status 參數（僅當 status 不是預設的 "inactive" 時才加入）
+	    // 範例二 inactive 屬性沒有 status 欄位，範例三 retired 有 status 欄位
+	    if (conceptStatus != null && !"inactive".equals(conceptStatus)) {
+	        result.addParameter("status", new StringType(conceptStatus));
+	    }
+
+	    // 9. system 參數
+	    if (successfulParams != null && successfulParams.system() != null
+	            && !successfulParams.system().isEmpty()) {
+	        result.addParameter("system", successfulParams.system());
+	    } else if (matchedCodeSystem != null && matchedCodeSystem.hasUrl()) {
+	        result.addParameter("system", new UriType(matchedCodeSystem.getUrl()));
+	    }
+
+	    // 10. version 參數
+	    String versionToReturn = null;
+	    if (effectiveSystemVersion != null && !effectiveSystemVersion.isEmpty()) {
+	        versionToReturn = effectiveSystemVersion.getValue();
+	    } else if (matchedCodeSystem != null && matchedCodeSystem.hasVersion()) {
+	        versionToReturn = matchedCodeSystem.getVersion();
+	    }
+	    if (versionToReturn != null) {
+	        result.addParameter("version", new StringType(versionToReturn));
+	    }
+
+	    return result;
+	}
+	
+	private String resolveConceptStatus(ConceptDefinitionComponent concept) {
+	    if (concept == null) {
+	        return "inactive";
+	    }
+
+	    // 1. 先找 status 屬性（retired / deprecated / withdrawn 等）
+	    for (ConceptPropertyComponent property : concept.getProperty()) {
+	        if ("status".equals(property.getCode())) {
+	            if (property.getValue() instanceof CodeType) {
+	                return ((CodeType) property.getValue()).getValue();
+	            } else if (property.getValue() instanceof StringType) {
+	                return ((StringType) property.getValue()).getValue();
+	            }
+	        }
+	    }
+
+	    // 2. 再找 inactive 屬性（沒有 status 但有 inactive=true）
+	    for (ConceptPropertyComponent property : concept.getProperty()) {
+	        if ("inactive".equals(property.getCode())) {
+	            if (property.getValue() instanceof BooleanType) {
+	                Boolean val = ((BooleanType) property.getValue()).getValue();
+	                if (Boolean.TRUE.equals(val)) {
+	                    return "inactive";
+	                }
+	            }
+	        }
+	    }
+
+	    return "inactive";
 	}
 }
