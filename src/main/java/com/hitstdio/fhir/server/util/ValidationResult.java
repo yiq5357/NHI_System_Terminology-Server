@@ -15,13 +15,14 @@ public record ValidationResult(
 	    ValidationErrorType errorType,
 	    Boolean isInactive,
 	    CodeSystemVersionNotFoundException versionException,
-	    List<String> missingValueSets
+	    List<String> missingValueSets,
+	    String normalizedCode
 	) {
 	// 為了向後兼容，提供靜態工廠方法
     public static ValidationResult of(boolean isValid, ConceptDefinitionComponent concept, 
                                      CodeSystem codeSystem, String display, 
                                      ValidationErrorType errorType, Boolean isInactive) {
-        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, null, null);
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, null, null, null);
     }
     
     // 提供包含 versionException 的靜態工廠方法
@@ -29,7 +30,7 @@ public record ValidationResult(
                                                        CodeSystem codeSystem, String display, 
                                                        ValidationErrorType errorType, Boolean isInactive,
                                                        CodeSystemVersionNotFoundException versionException) {
-        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, null);
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, null, null);
     }
     
     // 提供包含 missingValueSets 的靜態工廠方法
@@ -38,6 +39,6 @@ public record ValidationResult(
                                                        ValidationErrorType errorType, Boolean isInactive,
                                                        CodeSystemVersionNotFoundException versionException,
                                                        List<String> missingValueSets) {
-        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, missingValueSets);
+        return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, missingValueSets, null);
     }
 }

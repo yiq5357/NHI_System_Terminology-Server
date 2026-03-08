@@ -2,14 +2,14 @@ package com.hitstdio.fhir.server.util;
 
 public class OperationOutcomeMessageId {
 	
-	 // ValueSet ¬ÛÃö
+	 // ValueSet ï¿½ï¿½ï¿½ï¿½
     public static final String UNABLE_TO_RESOLVE_VALUE_SET = "Unable_to_resolve_value_Set_";
     public static final String NONE_OF_CODES_IN_VALUE_SET_ONE = "None_of_the_provided_codes_are_in_the_value_set_one";
     public static final String UNABLE_TO_CHECK_CODES_IN_VS = "UNABLE_TO_CHECK_IF_THE_PROVIDED_CODES_ARE_IN_THE_VALUE_SET_CS";
     public static final String TX_GENERAL_CC_ERROR = "TX_GENERAL_CC_ERROR_MESSAGE";
     public static final String UNABLE_TO_CHECK_CODES_IN_VS_VS = "UNABLE_TO_CHECK_IF_THE_PROVIDED_CODES_ARE_IN_THE_VALUE_SET_VS";
     
-    // CodeSystem ¬ÛÃö
+    // CodeSystem ï¿½ï¿½ï¿½ï¿½
     public static final String UNKNOWN_CODE_IN_VERSION = "Unknown_Code_in_Version";
     public static final String UNKNOWN_CODESYSTEM_VERSION = "UNKNOWN_CODESYSTEM_VERSION";
     public static final String UNKNOWN_CODESYSTEM = "UNKNOWN_CODESYSTEM";
@@ -18,24 +18,34 @@ public class OperationOutcomeMessageId {
     public static final String CODING_HAS_NO_SYSTEM_CANNOT_VALIDATE = "Coding_has_no_system__cannot_validate";
     public static final String UNABLE_TO_INFER_CODESYSTEM = "UNABLE_TO_INFER_CODESYSTEM";
     
-    // ¨ä¥LÅçÃÒ¿ù»~
+    // ï¿½ï¿½Lï¿½ï¿½ï¿½Ò¿ï¿½ï¿½~
     public static final String ABSTRACT_CODE_NOT_ALLOWED = "Abstract_Code_Not_Allowed";
     public static final String INVALID_DISPLAY = "Invalid_Display";
     public static final String DISPLAY_NAME_SHOULD_BE_ONE_OF = "Display_Name_for__should_be_one_of__instead_of";
+    /** ç¯„ä¾‹10ï¼šdisplay åƒ…ç©ºç™½å·®ç•°æ™‚ä½¿ç”¨ */
+    public static final String DISPLAY_NAME_WS_SHOULD_BE_ONE_OF = "Display_Name_WS_for__should_be_one_of__instead_of";
     public static final String STATUS_CODE_WARNING = "STATUS_CODE_WARNING_CODE";
     public static final String MISSING_REQUIRED_PARAMETER = "Missing_Required_Parameter";
     public static final String THIS_CODE_NOT_IN_VS = "this-code-not-in-vs";
     public static final String INACTIVE_CONCEPT_FOUND = "INACTIVE_CONCEPT_FOUND";
     public static final String DISPLAY_NAME_SHOULD_BE_ONE_OF_INSTEAD_OF = "Display_Name_for__should_be_one_of__instead_of";
     
-    // ±`¥Îªº URL ±`¶q
+    // ï¿½`ï¿½Îªï¿½ URL ï¿½`ï¿½q
     public static final String TX_ISSUE_TYPE_SYSTEM = "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type";
     public static final String MESSAGE_ID_EXTENSION_URL = "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id";
     
     public static final String NO_VALID_DISPLAY_FOUND_LANG_NONE = "NO_VALID_DISPLAY_FOUND_NONE_FOR_LANG_ERR";
     public static final String NO_VALID_DISPLAY_FOUND_LANG_SOME = "NO_VALID_DISPLAY_FOUND_SOME_FOR_LANG_ERR";
- 
-    // ¨¾¤î¹ê¨Ò¤Æ
+    
+    // ï¿½ï¿½Ü¦Wï¿½Ù¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½~
+    public static final String INVALID_DISPLAY_NAME = "INVALID_DISPLAY_NAME";
+    
+    // Supplement ç›¸é—œéŒ¯èª¤
+    public static final String VALUESET_SUPPLEMENT_MISSING = "VALUESET_SUPPLEMENT_MISSING";
+    /** ValueSet å¾ªç’°å¼•ç”¨éŒ¯èª¤ï¼ˆterminology æ¸¬è©¦ç¯„ä¾‹ big-circle-1ï¼‰ã€‚ */
+    public static final String VALUESET_CIRCULAR_REFERENCE = "VALUESET_CIRCULAR_REFERENCE";
+
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ò¤ï¿½
     private OperationOutcomeMessageId() {
         
     }
