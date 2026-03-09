@@ -170,7 +170,7 @@ public class ResourceFinder {
                     "' version '" + version + "' could not be found, so the value set cannot be expanded.";
 
                 if (!availableVersions.isEmpty()) {
-                    String validVersions = String.join(",", availableVersions);
+                    String validVersions = String.join(" or ", availableVersions);
                     diagnosticMessage += " Valid versions: " + validVersions;
                 }
 
