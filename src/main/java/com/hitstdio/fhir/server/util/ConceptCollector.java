@@ -171,6 +171,14 @@ public class ConceptCollector {
 				CanonicalType resolvedCanonical = new CanonicalType(
 						importedVs.getUrl() + "|" + importedVs.getVersion());
 
+				// Echo default-valueset-version if this ValueSet was resolved via a default version
+				String includeValue = valueSetToInclude.getValue();
+				boolean hasNoVersionInInclude = includeValue != null && !includeValue.contains("|");
+				if (hasNoVersionInInclude
+						&& request.getDefaultValueSetVersions().containsKey(importedVs.getUrl())) {
+					expansion.addParameter().setName("default-valueset-version").setValue(resolvedCanonical.copy());
+				}
+
 				expansion.addParameter().setName("used-valueset").setValue(resolvedCanonical.copy());
 
 				// 移除 version 參數
