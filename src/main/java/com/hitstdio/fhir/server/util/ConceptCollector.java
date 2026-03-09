@@ -665,8 +665,7 @@ public class ConceptCollector {
 		details.setText(errorMessage);
 		issue.setDetails(details);
 
-		String location = String.format("ValueSet[%s|%s].compose.include[%d].filter[%d].value", sourceValueSet.getUrl(),
-				sourceValueSet.getVersion(), includeIndex, filterIndex);
+		String location = String.format("ValueSet.compose.include[%d].filter[%d]", includeIndex, filterIndex);
 		issue.addLocation(location);
 		issue.addExpression(location);
 
