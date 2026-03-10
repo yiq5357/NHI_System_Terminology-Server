@@ -18,24 +18,24 @@ public record ValidationResult(
 	    List<String> missingValueSets,
 	    String normalizedCode
 	) {
-	// 為了向後兼容，提供靜態工廠方法
-    public static ValidationResult of(boolean isValid, ConceptDefinitionComponent concept, 
-                                     CodeSystem codeSystem, String display, 
+	// Backward compatibility: static factory method
+    public static ValidationResult of(boolean isValid, ConceptDefinitionComponent concept,
+                                     CodeSystem codeSystem, String display,
                                      ValidationErrorType errorType, Boolean isInactive) {
         return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, null, null, null);
     }
-    
-    // 提供包含 versionException 的靜態工廠方法
-    public static ValidationResult withVersionException(boolean isValid, ConceptDefinitionComponent concept, 
-                                                       CodeSystem codeSystem, String display, 
+
+    // Static factory with versionException
+    public static ValidationResult withVersionException(boolean isValid, ConceptDefinitionComponent concept,
+                                                       CodeSystem codeSystem, String display,
                                                        ValidationErrorType errorType, Boolean isInactive,
                                                        CodeSystemVersionNotFoundException versionException) {
         return new ValidationResult(isValid, concept, codeSystem, display, errorType, isInactive, versionException, null, null);
     }
-    
-    // 提供包含 missingValueSets 的靜態工廠方法
-    public static ValidationResult withMissingValueSets(boolean isValid, ConceptDefinitionComponent concept, 
-                                                       CodeSystem codeSystem, String display, 
+
+    // Static factory with missingValueSets
+    public static ValidationResult withMissingValueSets(boolean isValid, ConceptDefinitionComponent concept,
+                                                       CodeSystem codeSystem, String display,
                                                        ValidationErrorType errorType, Boolean isInactive,
                                                        CodeSystemVersionNotFoundException versionException,
                                                        List<String> missingValueSets) {

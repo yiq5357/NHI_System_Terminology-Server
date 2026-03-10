@@ -35,7 +35,7 @@ public class OperationOutcomeIssueBuilder {
             txIssueType,
             null
         ));
-        // 加入這行：設定 text 欄位
+        // Set text field
         if (text != null && !text.isEmpty()) {
             details.setText(text);
         }
