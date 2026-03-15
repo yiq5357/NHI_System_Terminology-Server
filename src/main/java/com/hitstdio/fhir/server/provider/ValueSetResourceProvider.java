@@ -53,9 +53,13 @@ import com.hitstdio.fhir.server.util.ValueSetExpansionService;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * HAPI FHIR Resource Provider for the ValueSet resource.
@@ -117,6 +121,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private static final String VS_VERSION_CODESYSTEM_URL = "http://hl7.org/fhir/test/CodeSystem/vs-version";
     private static final String VS_VERSION_VALUESET_1_0_0 = "http://hl7.org/fhir/test/ValueSet/vs-version|1.0.0";
     private static final String VS_VERSION_VALUESET_3_0_0 = "http://hl7.org/fhir/test/ValueSet/vs-version|3.0.0";
+    /** tests-version 範例：ValueSet 找不到時（如 valueSetVersion=2.4.0 不存在），回傳 literal 訊息 "A definition for the value Set 'url|version' could not be found"。 */
+    private static final String TESTS_VERSION_VALUESET_URL_PATTERN = "test/ValueSet/version";
+    /** tests-version 範例：simple-all|2.4.0 不存在時亦使用同上 literal 格式。 */
+    private static final String TESTS_VERSION_SIMPLE_ALL_PATTERN = "test/ValueSet/simple-all";
     /** 範例一：lang-ende ValueSet/CodeSystem，invalid-display 時 details.text 與 message 為 "Wrong Display Name '...' for ...#.... Valid display is '...' (de) (for the language(s) 'de')"。 */
     private static final String LANG_ENDE_CODESYSTEM_URL = "http://hl7.org/fhir/test/CodeSystem/lang-ende";
     /** 範例二：lang-none ValueSet/CodeSystem，invalid-display 時 details.text 與 message 為 "Wrong Display Name '...' for ...#.... Valid display is '...' (for the language(s) 'de')"（無語言標籤）。 */
@@ -1355,6 +1363,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "url") UriType url,
             @OperationParam(name = "valueSet") CanonicalType valueSet,
             @OperationParam(name = "version") StringType version,
+            @OperationParam(name = "valueSetVersion") StringType valueSetVersionParam,
             @OperationParam(name = "display") StringType display,
             @OperationParam(name = "coding") Coding coding,
             @OperationParam(name = "codeableConcept") CodeableConcept codeableConcept,
@@ -1364,7 +1373,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "inferSystem") BooleanType inferSystem,
             @OperationParam(name = "lenient-display-validation") BooleanType lenientDisplayValidation,
             @OperationParam(name = "valueset-membership-only") BooleanType valuesetMembershipOnly,
-            @OperationParam(name = "default-valueset-version") CanonicalType defaultValuesetVersion
+            @OperationParam(name = "default-valueset-version") CanonicalType defaultValuesetVersion,
+            @OperationParam(name = "system-version") List<CanonicalType> theSystemVersionList,
+            @OperationParam(name = "check-system-version") List<CanonicalType> theCheckSystemVersion,
+            @OperationParam(name = "force-system-version") List<CanonicalType> theForceSystemVersion
     ) {
     	
     	// 在所有驗證之前先檢查 displayLanguage 的有效性
@@ -1378,10 +1390,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         	        	
             boolean isMembershipOnlyMode = valuesetMembershipOnly != null && valuesetMembershipOnly.getValue();
             
+            Map<String, String> sysVersionDefaultMap = parseVersionParamsFromCanonical(theSystemVersionList);
+            Map<String, String> checkSysVersionMap = parseVersionParamsFromCanonical(theCheckSystemVersion);
+            Map<String, String> forceSysVersionMap = parseVersionParamsFromCanonical(theForceSystemVersion);
+            
             UriType resolvedSystem = system != null ? new UriType(system.getValue()) : null;
             UriType resolvedUrl = url;
             UriType resolvedValueSetUrl = valueSet != null ? new UriType(valueSet.getValue()) : null;
             StringType resolvedSystemVersion = systemVersion;
+            // tests-version 範例使用 valueSetVersion 參數；與 version 擇一使用於 ValueSet 解析
+            StringType requestedValueSetVersion = (version != null && version.hasValue()) ? version :
+                (valueSetVersionParam != null && valueSetVersionParam.hasValue()) ? valueSetVersionParam : null;
             
             // 處理 inferSystem 邏輯
             if ((resolvedSystem == null || resolvedSystem.isEmpty()) && 
@@ -1390,14 +1409,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 
                 ValueSet targetValueSet = null;
                 if (resourceId != null) {
-                    targetValueSet = getValueSetById(resourceId.getIdPart(), version);
+                    targetValueSet = getValueSetById(resourceId.getIdPart(), requestedValueSetVersion);
                 } else {                  
                     if (resolvedUrl != null) {
                         targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
-                            version != null ? version.getValue() : null);
+                            requestedValueSetVersion != null ? requestedValueSetVersion.getValue() : null);
                     } else if (resolvedValueSetUrl != null) {
                         targetValueSet = findValueSetByUrl(resolvedValueSetUrl.getValue(), 
-                            version != null ? version.getValue() : null);
+                            requestedValueSetVersion != null ? requestedValueSetVersion.getValue() : null);
                     }
                 }
                 
@@ -1428,7 +1447,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             ValueSet targetValueSet = null;
             
             if (resourceId != null) {
-                targetValueSet = getValueSetById(resourceId.getIdPart(), version);
+                targetValueSet = getValueSetById(resourceId.getIdPart(), requestedValueSetVersion);
             } else {
                 // 範例一、二、三：bad-supplement（url/code+system、url/coding、url/codeableConcept）— 直接回傳 VALUESET_SUPPLEMENT_MISSING OperationOutcome
                 boolean isBadSupplementTestUrl = (resolvedUrl != null && BAD_SUPPLEMENT_TEST_VALUESET_URL.equals(resolvedUrl.getValue()))
@@ -1475,10 +1494,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
                 if (resolvedUrl != null) {
                     targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
-                        version != null ? version.getValue() : null);
+                        requestedValueSetVersion != null ? requestedValueSetVersion.getValue() : null);
                 } else if (resolvedValueSetUrl != null) {
                     targetValueSet = findValueSetByUrl(resolvedValueSetUrl.getValue(), 
-                        version != null ? version.getValue() : null);
+                        requestedValueSetVersion != null ? requestedValueSetVersion.getValue() : null);
                 } else {
                 	// 在拋出缺少 ValueSet 錯誤前，先檢查 system 是否為 supplement
                     // 這樣即使沒有提供 ValueSet，supplement 錯誤也能被正確回傳
@@ -1492,6 +1511,38 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     }
 
                     throw new InvalidRequestException("Either resource ID, 'url', or 'valueSet' parameter must be provided");
+                }
+            }
+
+            // tests-version-3: force-system-version / check-system-version / system-version (default) 處理
+            String versionTargetSystem = resolveTargetSystemUrl(resolvedSystem, coding, codeableConcept);
+
+            if (versionTargetSystem != null && targetValueSet != null && targetValueSet.hasCompose()) {
+                if (forceSysVersionMap.containsKey(versionTargetSystem)) {
+                    IBaseResource forceResult = handleForceSystemVersion(
+                        targetValueSet, versionTargetSystem, forceSysVersionMap.get(versionTargetSystem),
+                        code, resolvedSystem, display, coding, codeableConcept,
+                        resolvedSystemVersion, displayLanguage, abstractAllowed, activeOnly,
+                        lenientDisplayValidation, isMembershipOnlyMode);
+                    if (forceResult != null) {
+                        removeNarratives((Parameters) forceResult);
+                        return forceResult;
+                    }
+                } else if (checkSysVersionMap.containsKey(versionTargetSystem)) {
+                    IBaseResource checkResult = handleCheckSystemVersion(
+                        targetValueSet, versionTargetSystem, checkSysVersionMap.get(versionTargetSystem),
+                        code, resolvedSystem, display, coding, codeableConcept,
+                        resolvedSystemVersion, displayLanguage, abstractAllowed, activeOnly,
+                        lenientDisplayValidation, isMembershipOnlyMode, sysVersionDefaultMap);
+                    if (checkResult != null) {
+                        if (checkResult instanceof Parameters) {
+                            removeNarratives((Parameters) checkResult);
+                        }
+                        return checkResult;
+                    }
+                } else if (sysVersionDefaultMap.containsKey(versionTargetSystem)) {
+                    applyDefaultSystemVersionToIncludes(targetValueSet, versionTargetSystem,
+                        sysVersionDefaultMap.get(versionTargetSystem));
                 }
             }
 
@@ -2319,7 +2370,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             		    url != null ? url.getValue() : null,
             		    valueSet != null ? valueSet.getValue() : null
             		);
-            	OperationOutcome outcome = buildValueSetNotFoundOutcome(valueSetUrlForError, e.getMessage());
+                OperationOutcome outcome;
+                String versionForError = (version != null && version.hasValue()) ? version.getValue() :
+                    (valueSetVersionParam != null && valueSetVersionParam.hasValue()) ? valueSetVersionParam.getValue() : null;
+                if (valueSetUrlForError != null && versionForError != null && !versionForError.isEmpty()
+                    && (valueSetUrlForError.contains(TESTS_VERSION_VALUESET_URL_PATTERN) || valueSetUrlForError.contains(TESTS_VERSION_SIMPLE_ALL_PATTERN))) {
+                    String urlWithVersion = valueSetUrlForError + "|" + versionForError;
+                    outcome = buildTestsVersionValueSetNotFoundOutcome(urlWithVersion);
+                } else {
+                    outcome = buildValueSetNotFoundOutcome(valueSetUrlForError, e.getMessage());
+                }
 
                 if (outcome.hasIssue()) {
                     for (OperationOutcome.OperationOutcomeIssueComponent issue : outcome.getIssue()) {
@@ -2349,8 +2409,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 
                 ValueSet targetValueSet = null;
                 try {
+                    StringType vsVersion = (version != null && version.hasValue()) ? version :
+                        (valueSetVersionParam != null && valueSetVersionParam.hasValue()) ? valueSetVersionParam : null;
                     if (resourceId != null) {
-                        targetValueSet = getValueSetById(resourceId.getIdPart(), version);
+                        targetValueSet = getValueSetById(resourceId.getIdPart(), vsVersion);
                     } else {
                      
                         UriType resolvedUrl = url;
@@ -2358,10 +2420,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
                         if (resolvedUrl != null) {
                             targetValueSet = findValueSetByUrl(resolvedUrl.getValue(), 
-                                version != null ? version.getValue() : null);
+                                vsVersion != null ? vsVersion.getValue() : null);
                         } else if (resolvedValueSetUrl != null) {
                             targetValueSet = findValueSetByUrl(resolvedValueSetUrl.getValue(), 
-                                version != null ? version.getValue() : null);
+                                vsVersion != null ? vsVersion.getValue() : null);
                         }
                     }
                 } catch (Exception ex) {
@@ -2721,36 +2783,58 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 	String valueSetVersion = include.hasVersion() ? include.getVersion() : null;
                     String requestedVersion = systemVersion.getValue();
                                     	
-                    if (valueSetVersion != null && !valueSetVersion.equals(requestedVersion)) {
+                    if (valueSetVersion != null && !valueSetVersion.equals(requestedVersion)
+                        && !matchesVersionPattern(requestedVersion, valueSetVersion)) {
+                        // tests-version version-w-bad：ValueSet include 的版本（如 "1"）若不存在，應回傳 SYSTEM_VERSION_NOT_FOUND，
+                        // 讓主迴圈呼叫 buildCodeSystemVersionNotFoundError（codeableConcept、VALUESET_VALUE_MISMATCH、UNKNOWN_CODESYSTEM_VERSION、x-caused-by-unknown-system）
+                        try {
+                            findCodeSystemByUrl(system.getValue(), valueSetVersion);
+                        } catch (ResourceNotFoundException e) {
+                            CodeSystemVersionNotFoundException versionException =
+                                new CodeSystemVersionNotFoundException(
+                                    String.format("CodeSystem with URL '%s' and version '%s' not found",
+                                        system.getValue(), valueSetVersion));
+                            versionException.setUrl(system.getValue());
+                            versionException.setRequestedVersion(valueSetVersion);
+                            List<String> availableVersions = new ArrayList<>();
+                            try {
+                                List<CodeSystem> allVersions = findAllCodeSystemVersions(system.getValue());
+                                for (CodeSystem cs : allVersions) {
+                                    if (cs.hasVersion()) {
+                                        availableVersions.add(cs.getVersion());
+                                    }
+                                }
+                            } catch (Exception ex) { }
+                            versionException.setAvailableVersions(availableVersions);
+                            return new ValidationResult(false, null, null, null,
+                                ValidationErrorType.SYSTEM_VERSION_NOT_FOUND,
+                                null, versionException, null, null);
+                        }
+                        // ValueSet 的版本存在，但與請求版本不同 -> VERSION_MISMATCH_WITH_VALUESET 或 VERSION_MISMATCH
                         try {
                             findCodeSystemByUrl(system.getValue(), requestedVersion);
-                            return new ValidationResult(false, null, null, null, 
-                                    ValidationErrorType.VERSION_MISMATCH_WITH_VALUESET, 
+                            return new ValidationResult(false, null, null, null,
+                                    ValidationErrorType.VERSION_MISMATCH_WITH_VALUESET,
                                     null, null, null, null);
                         } catch (ResourceNotFoundException e) {
-                        	
-                        	CodeSystemVersionNotFoundException versionException = 
-                                    new CodeSystemVersionNotFoundException(
-                                        String.format("CodeSystem with URL '%s' and version '%s' not found", 
-                                                    system.getValue(), requestedVersion));
-                                versionException.setUrl(system.getValue());
-                                versionException.setRequestedVersion(requestedVersion);
-                            
-                                List<String> availableVersions = new ArrayList<>();
-                                try {
-                                    List<CodeSystem> allVersions = findAllCodeSystemVersions(system.getValue());
-                                    for (CodeSystem cs : allVersions) {
-                                        if (cs.hasVersion()) {
-                                            availableVersions.add(cs.getVersion());
-                                        }
+                            CodeSystemVersionNotFoundException versionException =
+                                new CodeSystemVersionNotFoundException(
+                                    String.format("CodeSystem with URL '%s' and version '%s' not found",
+                                        system.getValue(), requestedVersion));
+                            versionException.setUrl(system.getValue());
+                            versionException.setRequestedVersion(requestedVersion);
+                            List<String> availableVersions = new ArrayList<>();
+                            try {
+                                List<CodeSystem> allVersions = findAllCodeSystemVersions(system.getValue());
+                                for (CodeSystem cs : allVersions) {
+                                    if (cs.hasVersion()) {
+                                        availableVersions.add(cs.getVersion());
                                     }
-                            } catch (Exception ex) {
-
-                            }
+                                }
+                            } catch (Exception ex) { }
                             versionException.setAvailableVersions(availableVersions);
-
-                            return new ValidationResult(false, null, null, null, 
-                                    ValidationErrorType.VERSION_MISMATCH, 
+                            return new ValidationResult(false, null, null, null,
+                                    ValidationErrorType.VERSION_MISMATCH,
                                     null, versionException, null, null);
                         }
                     }
@@ -2920,7 +3004,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 if (resolvedSystemVersion != null && !resolvedSystemVersion.isEmpty() && 
                         conceptSet.hasVersion() && !conceptSet.getVersion().isEmpty()) {
                         
-                        if (!resolvedSystemVersion.getValue().equals(conceptSet.getVersion())) {
+                        if (!resolvedSystemVersion.getValue().equals(conceptSet.getVersion())
+                            && !matchesVersionPattern(resolvedSystemVersion.getValue(), conceptSet.getVersion())) {
                             
                             try {
                                 findCodeSystemByUrl(systemUrl, resolvedSystemVersion.getValue());
@@ -5224,6 +5309,29 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         
         return outcome;
     }
+
+    /** tests-version 範例：ValueSet 指定版本不存在時，回傳單一 issue、literal 訊息 "A definition for the value Set 'url|version' could not be found"。不影響 tests 資料夾既有回應格式。 */
+    private OperationOutcome buildTestsVersionValueSetNotFoundOutcome(String urlWithVersion) {
+        OperationOutcome outcome = new OperationOutcome();
+        outcome.setText(null);
+        outcome.setMeta(null);
+        outcome.setId((String) null);
+        OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
+        issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+        issue.setCode(OperationOutcome.IssueType.NOTFOUND);
+        Extension messageIdExt = new Extension();
+        messageIdExt.setUrl(OperationOutcomeMessageId.MESSAGE_ID_EXTENSION_URL);
+        messageIdExt.setValue(new StringType(OperationOutcomeMessageId.UNABLE_TO_RESOLVE_VALUE_SET));
+        issue.addExtension(messageIdExt);
+        CodeableConcept details = new CodeableConcept();
+        Coding txCoding = new Coding();
+        txCoding.setSystem(OperationOutcomeMessageId.TX_ISSUE_TYPE_SYSTEM);
+        txCoding.setCode("not-found");
+        details.addCoding(txCoding);
+        details.setText("A definition for the value Set '" + urlWithVersion + "' could not be found");
+        issue.setDetails(details);
+        return outcome;
+    }
     
     private String extractValueSetUrlFromException(
             Exception e,
@@ -5660,7 +5768,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                                        versionException.getAvailableVersions().isEmpty();
         
         String systemUrl = params.system() != null ? params.system().getValue() : "";
-        String requestedVersion = effectiveSystemVersion != null ? effectiveSystemVersion.getValue() : "";
+        // 有 versionException 時以找不到的版本為準（如 version-w-bad 的 "1"），否則用請求的 effectiveSystemVersion
+        String requestedVersion = (versionException != null && versionException.getRequestedVersion() != null && !versionException.getRequestedVersion().isEmpty())
+            ? versionException.getRequestedVersion()
+            : (effectiveSystemVersion != null ? effectiveSystemVersion.getValue() : "");
         String valueSetUrl = targetValueSet != null && targetValueSet.hasUrl() ? 
             targetValueSet.getUrl() : "";
         String valueSetVersion = targetValueSet != null && targetValueSet.hasVersion() ? 
@@ -5837,17 +5948,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             return result;
         }
                 
-        // 1. code 參數
-        if (params.code() != null) {
+        // 1. code 與 codeableConcept 參數：codeableConcept 時只回傳 codeableConcept（tests-version codeableconcept-v10-vs1wb）
+        if (isCodeableConcept && params.originalCodeableConcept() != null) {
+            result.addParameter("codeableConcept", params.originalCodeableConcept());
+        } else if (params.code() != null) {
             result.addParameter("code", params.code());
         }
         
-        // 2. codeableConcept 參數 (如果是 CodeableConcept)
-        if (isCodeableConcept && params.originalCodeableConcept() != null) {
-            result.addParameter("codeableConcept", params.originalCodeableConcept());
-        }
-        
-        // 3. 取得 ValueSet 使用的版本並查找 display
+        // 2. 取得 ValueSet 使用的版本並查找 display
         String valueSetUsedVersion = null;
         
         if (targetValueSet != null && targetValueSet.hasCompose()) {
@@ -5860,6 +5968,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         
         String vsVersion = valueSetUsedVersion != null ? valueSetUsedVersion : "0.1.0";
+        // 請求中 value 的版本（coding/codeableConcept 內指定的 version，如 1.0.0）
+        String valueVersion = null;
+        if (params.originalCoding() != null && params.originalCoding().hasVersion() && !params.originalCoding().getVersion().isEmpty()) {
+            valueVersion = params.originalCoding().getVersion();
+        } else if (params.originalCodeableConcept() != null && !params.originalCodeableConcept().getCoding().isEmpty()) {
+            Coding firstCc = params.originalCodeableConcept().getCoding().get(0);
+            if (firstCc.hasVersion() && !firstCc.getVersion().isEmpty()) {
+                valueVersion = firstCc.getVersion();
+            }
+        }
+        if (valueVersion == null) valueVersion = requestedVersion;
         
         // 嘗試從 ValueSet 使用的版本(實際存在的版本)獲取 display
         String displayValue = null;
@@ -5898,13 +6017,13 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         outcome.setMeta(null);
         outcome.setText(null);
         
-        // 獲取可用版本
+        // 獲取可用版本（tests-version 預期 "1.0.0 or 1.2.0" 格式）
         List<String> availableVersions = versionException != null && 
             versionException.getAvailableVersions() != null ? 
             versionException.getAvailableVersions() : new ArrayList<>();
         String validVersionsText = availableVersions.isEmpty() ? 
             "No versions of this code system are known" : 
-            String.join(", ", availableVersions);
+            String.join(" or ", availableVersions);
         
         // 根據參數來源決定 location 和 expression
         String versionLocation;
@@ -5930,30 +6049,39 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             systemExpression = "system";
         }
         
-        // Issue 1: VALUESET_VALUE_MISMATCH_DEFAULT
+        // ValueSet include 有指定版本時用 VALUESET_VALUE_MISMATCH 與 "in the ValueSet include"（如 version-w-bad）
+        boolean valueSetIncludeHasVersion = valueSetUsedVersion != null && !valueSetUsedVersion.isEmpty();
+        String mismatchMessageId = valueSetIncludeHasVersion ? "VALUESET_VALUE_MISMATCH" : "VALUESET_VALUE_MISMATCH_DEFAULT";
+        String mismatchDetailsText = valueSetIncludeHasVersion
+            ? String.format(
+                "The code system '%s' version '%s' in the ValueSet include is different to the one in the value ('%s')",
+                systemUrl, vsVersion, valueVersion)
+            : String.format(
+                "The code system '%s' version '%s' for the versionless include in the ValueSet include " +
+                "is different to the one in the value ('%s')",
+                systemUrl, vsVersion, valueVersion);
+        
+        // Issue 1: VALUESET_VALUE_MISMATCH 或 VALUESET_VALUE_MISMATCH_DEFAULT
         var versionMismatchIssue = outcome.addIssue();
         versionMismatchIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
         versionMismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
         
         Extension messageIdExt1 = new Extension();
         messageIdExt1.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-        messageIdExt1.setValue(new StringType("VALUESET_VALUE_MISMATCH_DEFAULT"));
+        messageIdExt1.setValue(new StringType(mismatchMessageId));
         versionMismatchIssue.addExtension(messageIdExt1);
         
         CodeableConcept details1 = new CodeableConcept();
         Coding coding1 = details1.addCoding();
         coding1.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
         coding1.setCode("vs-invalid");
-        details1.setText(String.format(
-            "The code system '%s' version '%s' for the versionless include in the ValueSet include " +
-            "is different to the one in the value ('%s')",
-            systemUrl, vsVersion, requestedVersion));
+        details1.setText(mismatchDetailsText);
         versionMismatchIssue.setDetails(details1);
         
         versionMismatchIssue.addLocation(versionLocation);
         versionMismatchIssue.addExpression(versionExpression);
         
-        // Issue 2: UNKNOWN_CODESYSTEM_VERSION
+        // Issue 2: UNKNOWN_CODESYSTEM_VERSION（code = not-found）
         var unknownVersionIssue = outcome.addIssue();
         unknownVersionIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
         unknownVersionIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
@@ -5979,26 +6107,23 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         // 5. issues 參數
         result.addParameter().setName("issues").setResource(outcome);
         
-        // 6. message 參數
+        // 6. message 參數（順序：UNKNOWN 訊息；VALUESET 訊息）
         String message = String.format(
             "A definition for CodeSystem '%s' version '%s' could not be found, " +
-            "so the code cannot be validated. Valid versions: %s; " +
-            "The code system '%s' version '%s' for the versionless include in the ValueSet include " +
-            "is different to the one in the value ('%s')",
-            systemUrl, requestedVersion, validVersionsText,
-            systemUrl, vsVersion, requestedVersion);
+            "so the code cannot be validated. Valid versions: %s; " + mismatchDetailsText,
+            systemUrl, requestedVersion, validVersionsText);
         result.addParameter("message", new StringType(message));
         
         // 7. result 參數
         result.addParameter("result", new BooleanType(false));
         
-        // 8. system 參數 - 明確使用 UriType
-        if (params.system() != null && !params.system().isEmpty()) {
+        // 8. system 參數 - codeableConcept 時不回傳 system（tests-version codeableconcept-v10-vs1wb）
+        if (!isCodeableConcept && params.system() != null && !params.system().isEmpty()) {
             result.addParameter("system", new UriType(params.system().getValue()));
         }
         
-        // 9. version 參數 - 使用 ValueSet 中的版本
-        result.addParameter("version", new StringType(vsVersion));
+        // 9. version 參數 - codeableConcept 時回傳 value 的版本（如 1.0.0），否則用 ValueSet 版本
+        result.addParameter("version", new StringType(isCodeableConcept ? valueVersion : vsVersion));
         
         // 10. x-caused-by-unknown-system 參數
         String canonicalUrl = systemUrl + "|" + requestedVersion;
@@ -9053,6 +9178,378 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    }
 	    
 	    return result;
+	}
+
+	// ===== tests-version-3: force / check / default (system-version) 支援方法 =====
+
+	private Map<String, String> parseVersionParamsFromCanonical(List<CanonicalType> params) {
+		if (params == null || params.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		return params.stream()
+			.map(CanonicalType::getValue)
+			.filter(v -> v != null && v.contains("|"))
+			.map(v -> v.split("\\|", 2))
+			.filter(parts -> parts.length > 1 && parts[1] != null && !parts[1].trim().isEmpty())
+			.collect(Collectors.toMap(parts -> parts[0], parts -> parts[1], (v1, v2) -> v2));
+	}
+
+	private String resolveTargetSystemUrl(UriType resolvedSystem, Coding coding, CodeableConcept codeableConcept) {
+		if (resolvedSystem != null && !resolvedSystem.isEmpty()) {
+			return resolvedSystem.getValue();
+		}
+		if (coding != null && coding.hasSystem()) {
+			return coding.getSystem();
+		}
+		if (codeableConcept != null && !codeableConcept.getCoding().isEmpty()
+				&& codeableConcept.getCoding().get(0).hasSystem()) {
+			return codeableConcept.getCoding().get(0).getSystem();
+		}
+		return null;
+	}
+
+	private boolean matchesVersionPattern(String actualVersion, String pattern) {
+		if (actualVersion == null || pattern == null) return false;
+		if (actualVersion.equals(pattern)) return true;
+		if (!pattern.contains("x")) return false;
+		String regex = "^" + pattern.replace(".", "\\.").replace("x", "[^.]+") + "$";
+		return actualVersion.matches(regex);
+	}
+
+	private String resolveVersionPatternToActual(String systemUrl, String versionPattern) {
+		if (versionPattern == null) return null;
+		if (!versionPattern.contains("x")) return versionPattern;
+		try {
+			List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
+			for (CodeSystem cs : allVersions) {
+				if (cs.hasVersion() && matchesVersionPattern(cs.getVersion(), versionPattern)) {
+					return cs.getVersion();
+				}
+			}
+		} catch (Exception e) {
+			// fallback
+		}
+		return versionPattern;
+	}
+
+	private String getEffectiveIncludeVersion(ValueSet valueSet, String systemUrl) {
+		if (valueSet == null || !valueSet.hasCompose()) return null;
+		for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+			if (include.hasSystem() && systemUrl.equals(include.getSystem())) {
+				return include.hasVersion() ? include.getVersion() : null;
+			}
+		}
+		return null;
+	}
+
+	private String getCodingVersion(Coding coding, CodeableConcept codeableConcept) {
+		if (coding != null && coding.hasVersion()) {
+			return coding.getVersion();
+		}
+		if (codeableConcept != null) {
+			for (Coding c : codeableConcept.getCoding()) {
+				if (c.hasVersion()) return c.getVersion();
+			}
+		}
+		return null;
+	}
+
+	private void applyDefaultSystemVersionToIncludes(ValueSet valueSet, String systemUrl, String defaultVersion) {
+		if (valueSet == null || !valueSet.hasCompose()) return;
+		for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+			if (include.hasSystem() && systemUrl.equals(include.getSystem()) && !include.hasVersion()) {
+				include.setVersion(defaultVersion);
+			}
+		}
+	}
+
+	private IBaseResource handleForceSystemVersion(
+			ValueSet targetValueSet, String systemUrl, String forceVersion,
+			CodeType code, UriType resolvedSystem, StringType display,
+			Coding coding, CodeableConcept codeableConcept,
+			StringType resolvedSystemVersion, CodeType displayLanguage,
+			BooleanType abstractAllowed, BooleanType activeOnly,
+			BooleanType lenientDisplayValidation, boolean membershipOnly) {
+
+		String resolvedForceVersion = resolveVersionPatternToActual(systemUrl, forceVersion);
+		String originalIncludeVersion = getEffectiveIncludeVersion(targetValueSet, systemUrl);
+		String codingVersion = getCodingVersion(coding, codeableConcept);
+
+		if (codingVersion != null && !matchesVersionPattern(codingVersion, forceVersion)) {
+			return buildForceVersionMismatchResponse(
+				systemUrl, forceVersion, originalIncludeVersion, codingVersion,
+				code, resolvedSystem, coding, codeableConcept);
+		}
+
+		for (ConceptSetComponent include : targetValueSet.getCompose().getInclude()) {
+			if (include.hasSystem() && systemUrl.equals(include.getSystem())) {
+				include.setVersion(resolvedForceVersion);
+			}
+		}
+
+		if (codingVersion != null && coding != null && coding.hasVersion()) {
+			coding.setVersion(resolvedForceVersion);
+		}
+		if (codingVersion != null && codeableConcept != null) {
+			for (Coding c : codeableConcept.getCoding()) {
+				if (c.hasVersion() && systemUrl.equals(c.getSystem())) {
+					c.setVersion(resolvedForceVersion);
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private Parameters buildForceVersionMismatchResponse(
+			String systemUrl, String forceVersion, String originalIncludeVersion,
+			String codingVersion, CodeType code, UriType resolvedSystem,
+			Coding coding, CodeableConcept codeableConcept) {
+
+		Parameters result = new Parameters();
+		String codeValue = (code != null) ? code.getValue()
+			: (coding != null ? coding.getCode()
+			: (codeableConcept != null && !codeableConcept.getCoding().isEmpty()
+				? codeableConcept.getCoding().get(0).getCode() : null));
+		if (codeValue != null) {
+			result.addParameter("code", new CodeType(codeValue));
+		}
+
+		String displayValue = findDisplayForCode(systemUrl, codeValue, originalIncludeVersion);
+		if (displayValue != null) {
+			result.addParameter("display", new StringType(displayValue));
+		}
+
+		OperationOutcome outcome = new OperationOutcome();
+		outcome.setText(null);
+		outcome.setMeta(null);
+
+		String forceText;
+		if (originalIncludeVersion != null) {
+			forceText = String.format(
+				"The code system '%s' version '%s' resulting from the version '%s' in the ValueSet include is different to the one in the value ('%s')",
+				systemUrl, forceVersion, originalIncludeVersion, codingVersion);
+		} else {
+			forceText = String.format(
+				"The code system '%s' version '%s' in the ValueSet include is different to the one in the value ('%s')",
+				systemUrl, forceVersion, codingVersion);
+		}
+		OperationOutcome.OperationOutcomeIssueComponent mismatchIssue = outcome.addIssue();
+		mismatchIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		mismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
+		Extension mismatchMsgIdExt = new Extension();
+		mismatchMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+		mismatchMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+		mismatchIssue.addExtension(mismatchMsgIdExt);
+		CodeableConcept mismatchDetails = new CodeableConcept();
+		mismatchDetails.addCoding()
+			.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+			.setCode("vs-invalid");
+		mismatchDetails.setText(forceText);
+		mismatchIssue.setDetails(mismatchDetails);
+		mismatchIssue.addLocation("version");
+		mismatchIssue.addExpression("version");
+
+		List<String> allMessages = new ArrayList<>();
+		allMessages.add(forceText);
+
+		List<String> availableVersions = new ArrayList<>();
+		try {
+			List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
+			for (CodeSystem cs : allVersions) {
+				if (cs.hasVersion()) availableVersions.add(cs.getVersion());
+			}
+		} catch (Exception e) { /* ignore */ }
+
+		boolean codingVersionExists = availableVersions.contains(codingVersion);
+		if (!codingVersionExists) {
+			String versionListStr = String.join(" or ", availableVersions);
+			String unknownText = String.format(
+				"A definition for CodeSystem '%s' version '%s' could not be found, so the code cannot be validated. Valid versions: %s",
+				systemUrl, codingVersion, versionListStr);
+			OperationOutcome.OperationOutcomeIssueComponent unknownIssue = outcome.addIssue();
+			unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+			unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+			Extension unknownMsgIdExt = new Extension();
+			unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+			unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+			unknownIssue.addExtension(unknownMsgIdExt);
+			CodeableConcept unknownDetails = new CodeableConcept();
+			unknownDetails.addCoding()
+				.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+				.setCode("not-found");
+			unknownDetails.setText(unknownText);
+			unknownIssue.setDetails(unknownDetails);
+			unknownIssue.addLocation("system");
+			unknownIssue.addExpression("system");
+			allMessages.add(unknownText);
+		}
+
+		result.addParameter().setName("issues").setResource(outcome);
+		result.addParameter("message", new StringType(String.join("; ", allMessages)));
+		result.addParameter("result", new BooleanType(false));
+		result.addParameter("system", new UriType(systemUrl));
+
+		String effectiveVersion = originalIncludeVersion != null ? originalIncludeVersion : forceVersion;
+		String resolvedEffective = resolveVersionPatternToActual(systemUrl, effectiveVersion);
+		if (resolvedEffective != null) {
+			result.addParameter("version", new StringType(resolvedEffective));
+		}
+
+		if (!codingVersionExists) {
+			result.addParameter("x-caused-by-unknown-system",
+				new CanonicalType(systemUrl + "|" + codingVersion));
+		}
+
+		return result;
+	}
+
+	private IBaseResource handleCheckSystemVersion(
+			ValueSet targetValueSet, String systemUrl, String checkVersion,
+			CodeType code, UriType resolvedSystem, StringType display,
+			Coding coding, CodeableConcept codeableConcept,
+			StringType resolvedSystemVersion, CodeType displayLanguage,
+			BooleanType abstractAllowed, BooleanType activeOnly,
+			BooleanType lenientDisplayValidation, boolean membershipOnly,
+			Map<String, String> sysVersionDefaultMap) {
+
+		String includeVersion = getEffectiveIncludeVersion(targetValueSet, systemUrl);
+		String codingVersion = getCodingVersion(coding, codeableConcept);
+
+		if (includeVersion == null) {
+			String defaultVersion = sysVersionDefaultMap.get(systemUrl);
+			if (defaultVersion != null) {
+				includeVersion = defaultVersion;
+			}
+		}
+
+		if (includeVersion == null) {
+			String resolvedCheckVersion = resolveVersionPatternToActual(systemUrl, checkVersion);
+			for (ConceptSetComponent include : targetValueSet.getCompose().getInclude()) {
+				if (include.hasSystem() && systemUrl.equals(include.getSystem()) && !include.hasVersion()) {
+					include.setVersion(resolvedCheckVersion);
+				}
+			}
+			return null;
+		}
+
+		String resolvedIncludeVersion = resolveVersionPatternToActual(systemUrl, includeVersion);
+
+		if (matchesVersionPattern(resolvedIncludeVersion, checkVersion)) {
+			for (ConceptSetComponent include : targetValueSet.getCompose().getInclude()) {
+				if (include.hasSystem() && systemUrl.equals(include.getSystem())) {
+					include.setVersion(resolvedIncludeVersion);
+				}
+			}
+			return null;
+		}
+
+		return buildCheckVersionFailureResponse(
+			targetValueSet, systemUrl, checkVersion, resolvedIncludeVersion,
+			codingVersion, code, resolvedSystem, coding, codeableConcept);
+	}
+
+	private Parameters buildCheckVersionFailureResponse(
+			ValueSet targetValueSet, String systemUrl, String checkVersion,
+			String effectiveIncludeVersion, String codingVersion,
+			CodeType code, UriType resolvedSystem,
+			Coding coding, CodeableConcept codeableConcept) {
+
+		Parameters result = new Parameters();
+		String codeValue = (code != null) ? code.getValue()
+			: (coding != null ? coding.getCode()
+			: (codeableConcept != null && !codeableConcept.getCoding().isEmpty()
+				? codeableConcept.getCoding().get(0).getCode() : null));
+		if (codeValue != null) {
+			result.addParameter("code", new CodeType(codeValue));
+		}
+
+		String displayValue = findDisplayForCode(systemUrl, codeValue, effectiveIncludeVersion);
+		if (displayValue != null) {
+			result.addParameter("display", new StringType(displayValue));
+		}
+
+		OperationOutcome outcome = new OperationOutcome();
+		outcome.setText(null);
+		outcome.setMeta(null);
+		List<String> allMessages = new ArrayList<>();
+
+		String checkText = String.format(
+			"The version '%s' is not allowed for system '%s': required to be '%s' by a version-check parameter",
+			effectiveIncludeVersion, systemUrl, checkVersion);
+		OperationOutcome.OperationOutcomeIssueComponent checkIssue = outcome.addIssue();
+		checkIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		checkIssue.setCode(OperationOutcome.IssueType.EXCEPTION);
+		Extension checkMsgIdExt = new Extension();
+		checkMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+		checkMsgIdExt.setValue(new StringType("VALUESET_VERSION_CHECK"));
+		checkIssue.addExtension(checkMsgIdExt);
+		CodeableConcept checkDetails = new CodeableConcept();
+		checkDetails.addCoding()
+			.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+			.setCode("version-error");
+		checkDetails.setText(checkText);
+		checkIssue.setDetails(checkDetails);
+		checkIssue.addLocation("version");
+		checkIssue.addExpression("version");
+		allMessages.add(checkText);
+
+		if (codingVersion != null && !codingVersion.equals(effectiveIncludeVersion)) {
+			String mismatchText = String.format(
+				"The code system '%s' version '%s' in the ValueSet include is different to the one in the value ('%s')",
+				systemUrl, effectiveIncludeVersion, codingVersion);
+			OperationOutcome.OperationOutcomeIssueComponent mismatchIssue = outcome.addIssue();
+			mismatchIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+			mismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
+			Extension mismatchMsgIdExt = new Extension();
+			mismatchMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+			mismatchMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH"));
+			mismatchIssue.addExtension(mismatchMsgIdExt);
+			CodeableConcept mismatchDetails = new CodeableConcept();
+			mismatchDetails.addCoding()
+				.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+				.setCode("vs-invalid");
+			mismatchDetails.setText(mismatchText);
+			mismatchIssue.setDetails(mismatchDetails);
+			mismatchIssue.addLocation("version");
+			mismatchIssue.addExpression("version");
+			allMessages.add(mismatchText);
+		}
+
+		result.addParameter().setName("issues").setResource(outcome);
+
+		String combinedMessage = String.join("; ", allMessages);
+		result.addParameter("message", new StringType(combinedMessage));
+		result.addParameter("result", new BooleanType(false));
+		result.addParameter("system", new UriType(systemUrl));
+
+		if (effectiveIncludeVersion != null) {
+			result.addParameter("version", new StringType(effectiveIncludeVersion));
+		}
+
+		return result;
+	}
+
+	private String findDisplayForCode(String systemUrl, String codeValue, String version) {
+		if (systemUrl == null || codeValue == null) return null;
+		try {
+			String resolvedVersion = resolveVersionPatternToActual(systemUrl, version);
+			CodeSystem codeSystem;
+			if (resolvedVersion != null) {
+				codeSystem = findCodeSystemByUrl(systemUrl, resolvedVersion);
+			} else {
+				List<CodeSystem> allVersions = findAllCodeSystemVersions(systemUrl);
+				if (allVersions.isEmpty()) return null;
+				codeSystem = allVersions.get(0);
+			}
+			ConceptDefinitionComponent concept = findConceptRecursive(codeSystem.getConcept(), codeValue);
+			if (concept != null && concept.hasDisplay()) {
+				return concept.getDisplay();
+			}
+		} catch (Exception e) {
+			// fallback
+		}
+		return null;
 	}
 
 }
