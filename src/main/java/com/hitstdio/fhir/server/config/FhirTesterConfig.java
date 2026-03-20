@@ -58,10 +58,10 @@ public class FhirTesterConfig {
 	    public FhirContext fhirContext() {
 	        FhirContext ctx = FhirContext.forR4();
 	        
-	        // 禁用 narrative 生成器
+	        // Disable narrative generator
 	        ctx.setNarrativeGenerator(null);
 	        
-	        // 全局禁用 narrative 生成
+	        // Parser options: reference handling
 	        ctx.getParserOptions().setDontStripVersionsFromReferencesAtPaths(Arrays.asList("none"));
 	        ctx.getParserOptions().setStripVersionsFromReferences(false);
 	        
