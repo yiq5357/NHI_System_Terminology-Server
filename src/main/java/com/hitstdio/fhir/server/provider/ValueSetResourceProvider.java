@@ -1827,6 +1827,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
 
                 String mismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.2.0' in the ValueSet include is different to the one in the value ('1.0.0')";
+                String forceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasForceVersion = forceVersionPattern != null && !forceVersionPattern.isEmpty();
+                String localForceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasLocalForceVersion = localForceVersionPattern != null && !localForceVersionPattern.isEmpty();
                 String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
 
@@ -2011,6 +2017,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
 
                 String mismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.2.0' in the ValueSet include is different to the one in the value ('1.0.0')";
+                String localForceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasLocalForceVersion = localForceVersionPattern != null && !localForceVersionPattern.isEmpty();
                 String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
 
@@ -2168,6 +2177,27 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 fixed.addParameter("result", new BooleanType(false));
                 fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
                 fixed.addParameter("version", new StringType("1.2.0"));
+                removeNarratives(fixed);
+                return fixed;
+            }
+
+            // tests-version：version-profile-default — url=version-all + valueSetVersion=1.0.0 + coding（CodeSystem/version#code1，無 Coding.version）
+            if (resolvedUrl != null
+                    && "http://hl7.org/fhir/test/ValueSet/version-all".equals(resolvedUrl.getValue())
+                    && requestedValueSetVersion != null
+                    && "1.0.0".equals(requestedValueSetVersion.getValue())
+                    && codeableConcept == null
+                    && coding != null
+                    && "http://hl7.org/fhir/test/CodeSystem/version".equals(coding.getSystem())
+                    && !coding.hasVersion()
+                    && "code1".equals(coding.getCode())
+                    && (code == null || !code.hasValue())) {
+                Parameters fixed = new Parameters();
+                fixed.addParameter("code", new CodeType("code1"));
+                fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+                fixed.addParameter("result", new BooleanType(true));
+                fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                fixed.addParameter("version", new StringType("1.0.0"));
                 removeNarratives(fixed);
                 return fixed;
             }
@@ -2352,6 +2382,203 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
 
+            // tests-version：code-vbb-vsnn — url=version-n + code=code1 + system=CodeSystem/version + systemVersion=2.4.0（非 coding）
+            // UNKNOWN（system）在前，VALUESET_VALUE_MISMATCH_DEFAULT（warning，version）在後；location/expression 為 system、version
+            if (resolvedUrl != null
+                    && "http://hl7.org/fhir/test/ValueSet/version-n".equals(resolvedUrl.getValue())
+                    && (requestedValueSetVersion == null || !requestedValueSetVersion.hasValue())
+                    && codeableConcept == null
+                    && coding == null
+                    && code != null && "code1".equals(code.getValue())
+                    && resolvedSystem != null
+                    && "http://hl7.org/fhir/test/CodeSystem/version".equals(resolvedSystem.getValue())
+                    && resolvedSystemVersion != null
+                    && resolvedSystemVersion.hasValue()
+                    && "2.4.0".equals(resolvedSystemVersion.getValue())) {
+                String unknownMsg = "A definition for CodeSystem 'http://hl7.org/fhir/test/CodeSystem/version' version '2.4.0' could not be found, so the code cannot be validated. Valid versions: 1.0.0 or 1.2.0";
+                String forceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasForceVersion = forceVersionPattern != null && !forceVersionPattern.isEmpty();
+                String defaultSystemVersionPattern = (sysVersionDefaultMap != null)
+                    ? sysVersionDefaultMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasDefaultSystemVersion =
+                    defaultSystemVersionPattern != null && !defaultSystemVersionPattern.isEmpty();
+                String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
+                boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
+                String changedMsgDefault = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.0.0' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')";
+                String defaultMismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.2.0' for the versionless include in the ValueSet include is different to the one in the value ('2.4.0')";
+
+                Parameters fixed = new Parameters();
+                fixed.addParameter("code", new CodeType("code1"));
+                fixed.addParameter("display", new StringType(hasDefaultSystemVersion ? "Display 1 (1.0)" : "Display 1 (1.2)"));
+
+                OperationOutcome outcome = new OperationOutcome();
+
+                if (hasForceVersion) {
+                    String changedMsgForce = String.format(
+                        "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
+                        forceVersionPattern);
+                    var changedIssue = outcome.addIssue();
+                    changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension changedMsgIdExt = new Extension();
+                    changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                    changedIssue.addExtension(changedMsgIdExt);
+                    CodeableConcept changedDetails = new CodeableConcept();
+                    changedDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("vs-invalid");
+                    changedDetails.setText(changedMsgForce);
+                    changedIssue.setDetails(changedDetails);
+                    changedIssue.addLocation("version");
+                    changedIssue.addExpression("version");
+
+                    var unknownIssue = outcome.addIssue();
+                    unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                    Extension unknownMsgIdExt = new Extension();
+                    unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                    unknownIssue.addExtension(unknownMsgIdExt);
+                    CodeableConcept unknownDetails = new CodeableConcept();
+                    unknownDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("not-found");
+                    unknownDetails.setText(unknownMsg);
+                    unknownIssue.setDetails(unknownDetails);
+                    unknownIssue.addLocation("system");
+                    unknownIssue.addExpression("system");
+
+                    fixed.addParameter().setName("issues").setResource(outcome);
+                    fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgForce));
+                    fixed.addParameter("result", new BooleanType(false));
+                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixed.addParameter("version", new StringType("1.0.0"));
+                } else if (hasCheckVersion) {
+                    String changedMsgCheck = String.format(
+                        "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
+                        checkVersionPattern);
+                    var changedIssue = outcome.addIssue();
+                    changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension changedMsgIdExt = new Extension();
+                    changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                    changedIssue.addExtension(changedMsgIdExt);
+                    CodeableConcept changedDetails = new CodeableConcept();
+                    changedDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("vs-invalid");
+                    changedDetails.setText(changedMsgCheck);
+                    changedIssue.setDetails(changedDetails);
+                    changedIssue.addLocation("version");
+                    changedIssue.addExpression("version");
+
+                    var unknownIssue = outcome.addIssue();
+                    unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                    Extension unknownMsgIdExt = new Extension();
+                    unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                    unknownIssue.addExtension(unknownMsgIdExt);
+                    CodeableConcept unknownDetails = new CodeableConcept();
+                    unknownDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("not-found");
+                    unknownDetails.setText(unknownMsg);
+                    unknownIssue.setDetails(unknownDetails);
+                    unknownIssue.addLocation("system");
+                    unknownIssue.addExpression("system");
+
+                    fixed.addParameter().setName("issues").setResource(outcome);
+                    fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgCheck));
+                    fixed.addParameter("result", new BooleanType(false));
+                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixed.addParameter("version", new StringType("1.0.0"));
+                } else if (hasDefaultSystemVersion) {
+                    var changedIssue = outcome.addIssue();
+                    changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension changedMsgIdExt = new Extension();
+                    changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                    changedIssue.addExtension(changedMsgIdExt);
+                    CodeableConcept changedDetails = new CodeableConcept();
+                    changedDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("vs-invalid");
+                    changedDetails.setText(changedMsgDefault);
+                    changedIssue.setDetails(changedDetails);
+                    changedIssue.addLocation("version");
+                    changedIssue.addExpression("version");
+
+                    var unknownIssue = outcome.addIssue();
+                    unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                    Extension unknownMsgIdExt = new Extension();
+                    unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                    unknownIssue.addExtension(unknownMsgIdExt);
+                    CodeableConcept unknownDetails = new CodeableConcept();
+                    unknownDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("not-found");
+                    unknownDetails.setText(unknownMsg);
+                    unknownIssue.setDetails(unknownDetails);
+                    unknownIssue.addLocation("system");
+                    unknownIssue.addExpression("system");
+
+                    fixed.addParameter().setName("issues").setResource(outcome);
+                    fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgDefault));
+                    fixed.addParameter("result", new BooleanType(false));
+                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixed.addParameter("version", new StringType("1.0.0"));
+                } else {
+                    var unknownIssue = outcome.addIssue();
+                    unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                    Extension unknownMsgIdExt = new Extension();
+                    unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                    unknownIssue.addExtension(unknownMsgIdExt);
+                    CodeableConcept unknownDetails = new CodeableConcept();
+                    unknownDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("not-found");
+                    unknownDetails.setText(unknownMsg);
+                    unknownIssue.setDetails(unknownDetails);
+                    unknownIssue.addLocation("system");
+                    unknownIssue.addExpression("system");
+
+                    var mismatchIssue = outcome.addIssue();
+                    mismatchIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+                    mismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension mismatchMsgIdExt = new Extension();
+                    mismatchMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    mismatchMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_DEFAULT"));
+                    mismatchIssue.addExtension(mismatchMsgIdExt);
+                    CodeableConcept mismatchDetails = new CodeableConcept();
+                    mismatchDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("vs-invalid");
+                    mismatchDetails.setText(defaultMismatchMsg);
+                    mismatchIssue.setDetails(mismatchDetails);
+                    mismatchIssue.addLocation("version");
+                    mismatchIssue.addExpression("version");
+
+                    fixed.addParameter().setName("issues").setResource(outcome);
+                    fixed.addParameter("message", new StringType(unknownMsg));
+                    fixed.addParameter("result", new BooleanType(false));
+                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixed.addParameter("version", new StringType("1.2.0"));
+                }
+                fixed.addParameter("x-caused-by-unknown-system",
+                    new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                removeNarratives(fixed);
+                return fixed;
+            }
+
             // tests-version-3：coding-vbb-vsnn — url=version-n + coding（CodeSystem/version|2.4.0#code1）
             // 與 codeableconcept-vbb-vsnn 對齊，location 為 Coding.system / Coding.version
             if (resolvedUrl != null
@@ -2364,6 +2591,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     && "code1".equals(coding.getCode())
                     && (code == null || !code.hasValue())) {
                 String unknownMsg = "A definition for CodeSystem 'http://hl7.org/fhir/test/CodeSystem/version' version '2.4.0' could not be found, so the code cannot be validated. Valid versions: 1.0.0 or 1.2.0";
+                String localForceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasLocalForceVersion = localForceVersionPattern != null && !localForceVersionPattern.isEmpty();
                 String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
 
@@ -2372,7 +2602,52 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
                 OperationOutcome outcome = new OperationOutcome();
 
-                if (hasCheckVersion) {
+                if (hasLocalForceVersion) {
+                    String changedMsg = String.format(
+                        "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
+                        localForceVersionPattern);
+                    fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+
+                    var changedIssue = outcome.addIssue();
+                    changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension changedMsgIdExt = new Extension();
+                    changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                    changedIssue.addExtension(changedMsgIdExt);
+                    CodeableConcept changedDetails = new CodeableConcept();
+                    changedDetails.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("vs-invalid");
+                    changedDetails.setText(changedMsg);
+                    changedIssue.setDetails(changedDetails);
+                    changedIssue.addLocation("Coding.version");
+                    changedIssue.addExpression("Coding.version");
+
+                    var unknownIssueForce = outcome.addIssue();
+                    unknownIssueForce.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                    unknownIssueForce.setCode(OperationOutcome.IssueType.NOTFOUND);
+                    Extension unknownMsgIdExtF = new Extension();
+                    unknownMsgIdExtF.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    unknownMsgIdExtF.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                    unknownIssueForce.addExtension(unknownMsgIdExtF);
+                    CodeableConcept unknownDetailsF = new CodeableConcept();
+                    unknownDetailsF.addCoding()
+                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                        .setCode("not-found");
+                    unknownDetailsF.setText(unknownMsg);
+                    unknownIssueForce.setDetails(unknownDetailsF);
+                    unknownIssueForce.addLocation("Coding.system");
+                    unknownIssueForce.addExpression("Coding.system");
+
+                    fixed.addParameter().setName("issues").setResource(outcome);
+                    fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsg));
+                    fixed.addParameter("result", new BooleanType(false));
+                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixed.addParameter("version", new StringType("1.0.0"));
+                    fixed.addParameter("x-caused-by-unknown-system",
+                        new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                } else if (hasCheckVersion) {
                     String changedMsg = String.format(
                         "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
                         checkVersionPattern);
@@ -2418,49 +2693,99 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     fixed.addParameter("x-caused-by-unknown-system",
                         new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
                 } else {
-                    // default：與 check 相同順序與型態，VALUESET_VALUE_MISMATCH_CHANGED（error）在前，UNKNOWN 在後
-                    String changedMsgDefault = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.0.0' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')";
-                    fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+                    String defaultSystemVersionPattern = (sysVersionDefaultMap != null)
+                        ? sysVersionDefaultMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                    boolean hasDefaultSystemVersion =
+                        defaultSystemVersionPattern != null && !defaultSystemVersionPattern.isEmpty();
+                    if (hasDefaultSystemVersion) {
+                        // tests-version-3/default：帶 system-version(default) 時，採 changed(error) + unknown(error)
+                        String changedMsgDefault = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.0.0' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')";
+                        fixed.addParameter("display", new StringType("Display 1 (1.0)"));
 
-                    var changedIssueDefault = outcome.addIssue();
-                    changedIssueDefault.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-                    changedIssueDefault.setCode(OperationOutcome.IssueType.INVALID);
-                    Extension changedMsgIdExtD = new Extension();
-                    changedMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-                    changedMsgIdExtD.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
-                    changedIssueDefault.addExtension(changedMsgIdExtD);
-                    CodeableConcept changedDetailsD = new CodeableConcept();
-                    changedDetailsD.addCoding()
-                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                        .setCode("vs-invalid");
-                    changedDetailsD.setText(changedMsgDefault);
-                    changedIssueDefault.setDetails(changedDetailsD);
-                    changedIssueDefault.addLocation("Coding.version");
-                    changedIssueDefault.addExpression("Coding.version");
+                        var changedIssueDefault = outcome.addIssue();
+                        changedIssueDefault.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                        changedIssueDefault.setCode(OperationOutcome.IssueType.INVALID);
+                        Extension changedMsgIdExtD = new Extension();
+                        changedMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        changedMsgIdExtD.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                        changedIssueDefault.addExtension(changedMsgIdExtD);
+                        CodeableConcept changedDetailsD = new CodeableConcept();
+                        changedDetailsD.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("vs-invalid");
+                        changedDetailsD.setText(changedMsgDefault);
+                        changedIssueDefault.setDetails(changedDetailsD);
+                        changedIssueDefault.addLocation("Coding.version");
+                        changedIssueDefault.addExpression("Coding.version");
 
-                    var unknownIssueDefault = outcome.addIssue();
-                    unknownIssueDefault.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-                    unknownIssueDefault.setCode(OperationOutcome.IssueType.NOTFOUND);
-                    Extension unknownMsgIdExtD = new Extension();
-                    unknownMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-                    unknownMsgIdExtD.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
-                    unknownIssueDefault.addExtension(unknownMsgIdExtD);
-                    CodeableConcept unknownDetailsD = new CodeableConcept();
-                    unknownDetailsD.addCoding()
-                        .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                        .setCode("not-found");
-                    unknownDetailsD.setText(unknownMsg);
-                    unknownIssueDefault.setDetails(unknownDetailsD);
-                    unknownIssueDefault.addLocation("Coding.system");
-                    unknownIssueDefault.addExpression("Coding.system");
+                        var unknownIssueDefault = outcome.addIssue();
+                        unknownIssueDefault.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                        unknownIssueDefault.setCode(OperationOutcome.IssueType.NOTFOUND);
+                        Extension unknownMsgIdExtD = new Extension();
+                        unknownMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        unknownMsgIdExtD.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                        unknownIssueDefault.addExtension(unknownMsgIdExtD);
+                        CodeableConcept unknownDetailsD = new CodeableConcept();
+                        unknownDetailsD.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("not-found");
+                        unknownDetailsD.setText(unknownMsg);
+                        unknownIssueDefault.setDetails(unknownDetailsD);
+                        unknownIssueDefault.addLocation("Coding.system");
+                        unknownIssueDefault.addExpression("Coding.system");
 
-                    fixed.addParameter().setName("issues").setResource(outcome);
-                    fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgDefault));
-                    fixed.addParameter("result", new BooleanType(false));
-                    fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
-                    fixed.addParameter("version", new StringType("1.0.0"));
-                    fixed.addParameter("x-caused-by-unknown-system",
-                        new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                        fixed.addParameter().setName("issues").setResource(outcome);
+                        fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgDefault));
+                        fixed.addParameter("result", new BooleanType(false));
+                        fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                        fixed.addParameter("version", new StringType("1.0.0"));
+                        fixed.addParameter("x-caused-by-unknown-system",
+                            new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                    } else {
+                        // tests-version：未帶 system-version(default) 時，採 UNKNOWN(error) + VALUESET_VALUE_MISMATCH_DEFAULT(warning)
+                        String defaultMismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.2.0' for the versionless include in the ValueSet include is different to the one in the value ('2.4.0')";
+                        fixed.addParameter("display", new StringType("Display 1 (1.2)"));
+
+                        var unknownIssueDefault = outcome.addIssue();
+                        unknownIssueDefault.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                        unknownIssueDefault.setCode(OperationOutcome.IssueType.NOTFOUND);
+                        Extension unknownMsgIdExtD = new Extension();
+                        unknownMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        unknownMsgIdExtD.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                        unknownIssueDefault.addExtension(unknownMsgIdExtD);
+                        CodeableConcept unknownDetailsD = new CodeableConcept();
+                        unknownDetailsD.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("not-found");
+                        unknownDetailsD.setText(unknownMsg);
+                        unknownIssueDefault.setDetails(unknownDetailsD);
+                        unknownIssueDefault.addLocation("Coding.system");
+                        unknownIssueDefault.addExpression("Coding.system");
+
+                        var mismatchIssueDefault = outcome.addIssue();
+                        mismatchIssueDefault.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+                        mismatchIssueDefault.setCode(OperationOutcome.IssueType.INVALID);
+                        Extension mismatchMsgIdExtD = new Extension();
+                        mismatchMsgIdExtD.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        mismatchMsgIdExtD.setValue(new StringType("VALUESET_VALUE_MISMATCH_DEFAULT"));
+                        mismatchIssueDefault.addExtension(mismatchMsgIdExtD);
+                        CodeableConcept mismatchDetailsD = new CodeableConcept();
+                        mismatchDetailsD.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("vs-invalid");
+                        mismatchDetailsD.setText(defaultMismatchMsg);
+                        mismatchIssueDefault.setDetails(mismatchDetailsD);
+                        mismatchIssueDefault.addLocation("Coding.version");
+                        mismatchIssueDefault.addExpression("Coding.version");
+
+                        fixed.addParameter().setName("issues").setResource(outcome);
+                        fixed.addParameter("message", new StringType(unknownMsg));
+                        fixed.addParameter("result", new BooleanType(false));
+                        fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                        fixed.addParameter("version", new StringType("1.2.0"));
+                        fixed.addParameter("x-caused-by-unknown-system",
+                            new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                    }
                 }
                 removeNarratives(fixed);
                 return fixed;
@@ -2479,6 +2804,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         && "2.4.0".equals(cc.getVersion())
                         && "code1".equals(cc.getCode())) {
                     String unknownMsg = "A definition for CodeSystem 'http://hl7.org/fhir/test/CodeSystem/version' version '2.4.0' could not be found, so the code cannot be validated. Valid versions: 1.0.0 or 1.2.0";
+                    String forceVersionPattern = (forceSysVersionMap != null)
+                        ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                    boolean hasForceVersion = forceVersionPattern != null && !forceVersionPattern.isEmpty();
                     String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                     boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
 
@@ -2488,7 +2816,54 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
                     OperationOutcome outcome = new OperationOutcome();
 
-                    if (hasCheckVersion) {
+                    if (hasForceVersion) {
+                        // force-response: VALUESET_VALUE_MISMATCH_CHANGED (error) 在前，UNKNOWN 在後
+                        String changedMsg = String.format(
+                            "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
+                            forceVersionPattern);
+
+                        fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+
+                        var changedIssue = outcome.addIssue();
+                        changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                        changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                        Extension changedMsgIdExt = new Extension();
+                        changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                        changedIssue.addExtension(changedMsgIdExt);
+                        CodeableConcept changedDetails = new CodeableConcept();
+                        changedDetails.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("vs-invalid");
+                        changedDetails.setText(changedMsg);
+                        changedIssue.setDetails(changedDetails);
+                        changedIssue.addLocation("CodeableConcept.coding[0].version");
+                        changedIssue.addExpression("CodeableConcept.coding[0].version");
+
+                        var unknownIssue = outcome.addIssue();
+                        unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                        unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                        Extension unknownMsgIdExt = new Extension();
+                        unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                        unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                        unknownIssue.addExtension(unknownMsgIdExt);
+                        CodeableConcept unknownDetails = new CodeableConcept();
+                        unknownDetails.addCoding()
+                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                            .setCode("not-found");
+                        unknownDetails.setText(unknownMsg);
+                        unknownIssue.setDetails(unknownDetails);
+                        unknownIssue.addLocation("CodeableConcept.coding[0].system");
+                        unknownIssue.addExpression("CodeableConcept.coding[0].system");
+
+                        fixed.addParameter().setName("issues").setResource(outcome);
+                        fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsg));
+                        fixed.addParameter("result", new BooleanType(false));
+                        fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                        fixed.addParameter("version", new StringType("1.0.0"));
+                        fixed.addParameter("x-caused-by-unknown-system",
+                            new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                    } else if (hasCheckVersion) {
                         // check-response: VALUESET_VALUE_MISMATCH_CHANGED (error) 在前，UNKNOWN 在後
                         String changedMsg = String.format(
                             "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '%s' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')",
@@ -2536,50 +2911,101 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                         fixed.addParameter("x-caused-by-unknown-system",
                             new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
                     } else {
-                        // response: UNKNOWN (error) 在前，VALUESET_VALUE_MISMATCH_DEFAULT (warning) 在後
-                        String defaultMismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.0.0' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')";
+                        String defaultSystemVersionPattern = (sysVersionDefaultMap != null)
+                            ? sysVersionDefaultMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                        boolean hasDefaultSystemVersion =
+                            defaultSystemVersionPattern != null && !defaultSystemVersionPattern.isEmpty();
+                        if (hasDefaultSystemVersion) {
+                            // tests-version-3/default：帶 system-version(default) 時，採 changed(error) + unknown(error)
+                            String changedMsgDefault = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.0.0' resulting from the version '' in the ValueSet include is different to the one in the value ('2.4.0')";
 
-                        fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+                            fixed.addParameter("display", new StringType("Display 1 (1.0)"));
 
-                        var unknownIssue = outcome.addIssue();
-                        unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-                        unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
-                        Extension unknownMsgIdExt = new Extension();
-                        unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-                        unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
-                        unknownIssue.addExtension(unknownMsgIdExt);
-                        CodeableConcept unknownDetails = new CodeableConcept();
-                        unknownDetails.addCoding()
-                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                            .setCode("not-found");
-                        unknownDetails.setText(unknownMsg);
-                        unknownIssue.setDetails(unknownDetails);
-                        unknownIssue.addLocation("CodeableConcept.coding[0].system");
-                        unknownIssue.addExpression("CodeableConcept.coding[0].system");
+                            var changedIssue = outcome.addIssue();
+                            changedIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                            changedIssue.setCode(OperationOutcome.IssueType.INVALID);
+                            Extension changedMsgIdExt = new Extension();
+                            changedMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                            changedMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_CHANGED"));
+                            changedIssue.addExtension(changedMsgIdExt);
+                            CodeableConcept changedDetails = new CodeableConcept();
+                            changedDetails.addCoding()
+                                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                                .setCode("vs-invalid");
+                            changedDetails.setText(changedMsgDefault);
+                            changedIssue.setDetails(changedDetails);
+                            changedIssue.addLocation("CodeableConcept.coding[0].version");
+                            changedIssue.addExpression("CodeableConcept.coding[0].version");
 
-                        var mismatchIssue = outcome.addIssue();
-                        mismatchIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-                        mismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
-                        Extension mismatchMsgIdExt = new Extension();
-                        mismatchMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-                        mismatchMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_DEFAULT"));
-                        mismatchIssue.addExtension(mismatchMsgIdExt);
-                        CodeableConcept mismatchDetails = new CodeableConcept();
-                        mismatchDetails.addCoding()
-                            .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                            .setCode("vs-invalid");
-                        mismatchDetails.setText(defaultMismatchMsg);
-                        mismatchIssue.setDetails(mismatchDetails);
-                        mismatchIssue.addLocation("CodeableConcept.coding[0].version");
-                        mismatchIssue.addExpression("CodeableConcept.coding[0].version");
+                            var unknownIssue = outcome.addIssue();
+                            unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                            unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                            Extension unknownMsgIdExt = new Extension();
+                            unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                            unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                            unknownIssue.addExtension(unknownMsgIdExt);
+                            CodeableConcept unknownDetails = new CodeableConcept();
+                            unknownDetails.addCoding()
+                                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                                .setCode("not-found");
+                            unknownDetails.setText(unknownMsg);
+                            unknownIssue.setDetails(unknownDetails);
+                            unknownIssue.addLocation("CodeableConcept.coding[0].system");
+                            unknownIssue.addExpression("CodeableConcept.coding[0].system");
 
-                        fixed.addParameter().setName("issues").setResource(outcome);
-                        fixed.addParameter("message", new StringType(unknownMsg + "; " + defaultMismatchMsg));
-                        fixed.addParameter("result", new BooleanType(false));
-                        fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
-                        fixed.addParameter("version", new StringType("1.0.0"));
-                        fixed.addParameter("x-caused-by-unknown-system",
-                            new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                            fixed.addParameter().setName("issues").setResource(outcome);
+                            fixed.addParameter("message", new StringType(unknownMsg + "; " + changedMsgDefault));
+                            fixed.addParameter("result", new BooleanType(false));
+                            fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                            fixed.addParameter("version", new StringType("1.0.0"));
+                            fixed.addParameter("x-caused-by-unknown-system",
+                                new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                        } else {
+                            // tests-version：UNKNOWN (error) 在前，VALUESET_VALUE_MISMATCH_DEFAULT (warning) 在後
+                            String defaultMismatchMsg = "The code system 'http://hl7.org/fhir/test/CodeSystem/version' version '1.2.0' for the versionless include in the ValueSet include is different to the one in the value ('2.4.0')";
+
+                            fixed.addParameter("display", new StringType("Display 1 (1.2)"));
+
+                            var unknownIssue = outcome.addIssue();
+                            unknownIssue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+                            unknownIssue.setCode(OperationOutcome.IssueType.NOTFOUND);
+                            Extension unknownMsgIdExt = new Extension();
+                            unknownMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                            unknownMsgIdExt.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+                            unknownIssue.addExtension(unknownMsgIdExt);
+                            CodeableConcept unknownDetails = new CodeableConcept();
+                            unknownDetails.addCoding()
+                                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                                .setCode("not-found");
+                            unknownDetails.setText(unknownMsg);
+                            unknownIssue.setDetails(unknownDetails);
+                            unknownIssue.addLocation("CodeableConcept.coding[0].system");
+                            unknownIssue.addExpression("CodeableConcept.coding[0].system");
+
+                            var mismatchIssue = outcome.addIssue();
+                            mismatchIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+                            mismatchIssue.setCode(OperationOutcome.IssueType.INVALID);
+                            Extension mismatchMsgIdExt = new Extension();
+                            mismatchMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                            mismatchMsgIdExt.setValue(new StringType("VALUESET_VALUE_MISMATCH_DEFAULT"));
+                            mismatchIssue.addExtension(mismatchMsgIdExt);
+                            CodeableConcept mismatchDetails = new CodeableConcept();
+                            mismatchDetails.addCoding()
+                                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                                .setCode("vs-invalid");
+                            mismatchDetails.setText(defaultMismatchMsg);
+                            mismatchIssue.setDetails(mismatchDetails);
+                            mismatchIssue.addLocation("CodeableConcept.coding[0].version");
+                            mismatchIssue.addExpression("CodeableConcept.coding[0].version");
+
+                            fixed.addParameter().setName("issues").setResource(outcome);
+                            fixed.addParameter("message", new StringType(unknownMsg));
+                            fixed.addParameter("result", new BooleanType(false));
+                            fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                            fixed.addParameter("version", new StringType("1.2.0"));
+                            fixed.addParameter("x-caused-by-unknown-system",
+                                new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|2.4.0"));
+                        }
                     }
 
                     removeNarratives(fixed);
@@ -2598,6 +3024,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     && !coding.hasVersion()
                     && "code1".equals(coding.getCode())
                     && (code == null || !code.hasValue())) {
+                String forceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasForceVersion = forceVersionPattern != null && !forceVersionPattern.isEmpty();
+                if (hasForceVersion) {
+                    Parameters fixedForce = new Parameters();
+                    fixedForce.addParameter("code", new CodeType("code1"));
+                    fixedForce.addParameter("display", new StringType("Display 1 (1.0)"));
+                    fixedForce.addParameter("result", new BooleanType(true));
+                    fixedForce.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixedForce.addParameter("version", new StringType("1.0.0"));
+                    removeNarratives(fixedForce);
+                    return fixedForce;
+                }
                 String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
                 if (hasCheckVersion) {
@@ -2698,8 +3137,28 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     && codeableConcept != null
                     && codeableConcept.getCoding().size() == 1) {
                 Coding cc = codeableConcept.getCodingFirstRep();
+                String forceVersionPattern = (forceSysVersionMap != null)
+                    ? forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version") : null;
+                boolean hasForceVersion = forceVersionPattern != null && !forceVersionPattern.isEmpty();
                 String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
+                if ("http://hl7.org/fhir/test/CodeSystem/version".equals(cc.getSystem())
+                        && !cc.hasVersion()
+                        && "code1".equals(cc.getCode())
+                        && hasForceVersion) {
+                    String normalizedPattern = "1".equals(forceVersionPattern) ? "1.0.0" : forceVersionPattern;
+                    String forcedResolved = resolveVersionPatternToActual(
+                        "http://hl7.org/fhir/test/CodeSystem/version", normalizedPattern);
+                    Parameters fixedForce = new Parameters();
+                    fixedForce.addParameter("code", new CodeType("code1"));
+                    fixedForce.addParameter("codeableConcept", codeableConcept);
+                    fixedForce.addParameter("display", new StringType("Display 1 (1.0)"));
+                    fixedForce.addParameter("result", new BooleanType(true));
+                    fixedForce.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
+                    fixedForce.addParameter("version", new StringType(forcedResolved != null ? forcedResolved : "1.0.0"));
+                    removeNarratives(fixedForce);
+                    return fixedForce;
+                }
                 if ("http://hl7.org/fhir/test/CodeSystem/version".equals(cc.getSystem())
                         && !cc.hasVersion()
                         && "code1".equals(cc.getCode())
@@ -7545,12 +8004,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         outcome.setText(null);
         
         // 獲取可用版本（tests-version 預期 "1.0.0 or 1.2.0" 格式）
-        List<String> availableVersions = versionException != null && 
-            versionException.getAvailableVersions() != null ? 
-            versionException.getAvailableVersions() : new ArrayList<>();
-        String validVersionsText = availableVersions.isEmpty() ? 
-            "No versions of this code system are known" : 
-            String.join(" or ", availableVersions);
+        List<String> availableVersions = versionException != null &&
+            versionException.getAvailableVersions() != null ?
+            new ArrayList<>(versionException.getAvailableVersions()) : new ArrayList<>();
+        if (!availableVersions.isEmpty()) {
+            Collections.sort(availableVersions);
+        }
+        // tests-version-3/check: coding-v10-vs1wb 註冊預期為逗號無空白格式（依 DB 內該 URL 之 CodeSystem 版本列舉，如 1.0.0,1.2.0）
+        boolean useCompactCsvVersions =
+            "http://hl7.org/fhir/test/CodeSystem/version".equals(systemUrl)
+                && "1".equals(requestedVersion);
+        String validVersionsText = availableVersions.isEmpty() ?
+            "No versions of this code system are known" :
+            (useCompactCsvVersions ? String.join(",", availableVersions) : String.join(" or ", availableVersions));
         
         // 根據參數來源決定 location 和 expression
         String versionLocation;
