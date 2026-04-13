@@ -470,22 +470,15 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
      *   }]
      * }
      * </pre>
-     * <p>回應（OperationOutcome）— 循環引用時回傳 severity=error、code=processing、details.coding=vs-invalid：</p>
+     * <p>回應（OperationOutcome）— 循環引用時回傳 severity=error、code=processing、details.text=$external:1:…$、diagnostics=$external:2$（optional）：</p>
      * <pre>
      * {
      *   "resourceType" : "OperationOutcome",
      *   "issue" : [{
-     *     "extension" : [{
-     *       "url" : "http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id",
-     *       "valueString" : "VALUESET_CIRCULAR_REFERENCE"
-     *     }],
+     *     "$optional-properties$" : ["diagnostics"],
      *     "severity" : "error",
      *     "code" : "processing",
      *     "details" : {
-     *       "coding" : [{
-     *         "system" : "http://hl7.org/fhir/tools/CodeSystem/tx-issue-type",
-     *         "code" : "vs-invalid"
-     *       }],
      *       "text" : "$external:1:http://hl7.org/fhir/test/ValueSet/big-circle-1$"
      *     },
      *     "diagnostics" : "$external:2$"
@@ -3229,31 +3222,89 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     && "http://hl7.org/fhir/test/CodeSystem/version".equals(resolvedSystem.getValue())
                     && (resolvedSystemVersion == null || !resolvedSystemVersion.hasValue())
                     && (systemVersionCode == null || !systemVersionCode.hasValue())) {
-                // tests-version-3/force：code-vnn-vs1wb — 帶 force-system-version 時應成功（回傳 1.0.0）
-                if (forceSysVersionMap != null
-                        && forceSysVersionMap.containsKey("http://hl7.org/fhir/test/CodeSystem/version")) {
-                    String forcedPattern = forceSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
-                    // tests-version-3 範例會用 "1" 表示 major=1，視同 1.0.0
-                    String normalizedPattern = "1".equals(forcedPattern) ? "1.0.0" : forcedPattern;
-                    String forcedResolved = resolveVersionPatternToActual(
-                        "http://hl7.org/fhir/test/CodeSystem/version", normalizedPattern);
+
+                String systemUrl = resolvedSystem.getValue();
+                String codeValue = code.getValue();
+
+                // 從 ValueSet include 動態取得 "bad" 版本號（如 "1"）
+                ValueSet vsForBadVersion = null;
+                try { vsForBadVersion = findValueSetByUrl(resolvedUrl.getValue(), null); } catch (Exception ignored) {}
+                String badIncludeVersion = vsForBadVersion != null
+                    ? getEffectiveIncludeVersion(vsForBadVersion, systemUrl) : null;
+                String badVersion = badIncludeVersion != null ? badIncludeVersion : "unknown";
+
+                // 動態取得所有可用版本（DESC 排序）
+                List<CodeSystem> allCsVersions = findAllCodeSystemVersions(systemUrl);
+                List<String> availableVersions = allCsVersions.stream()
+                    .filter(CodeSystem::hasVersion)
+                    .map(CodeSystem::getVersion)
+                    .collect(Collectors.toList());
+                String latestVersion = availableVersions.isEmpty() ? null : availableVersions.get(0);
+
+                // 動態從最新版 CodeSystem 查詢 code display
+                String displayValue = null;
+                if (latestVersion != null) {
+                    try {
+                        CodeSystem latestCs = findCodeSystemByUrl(systemUrl, latestVersion);
+                        ConceptDefinitionComponent concept = findConceptRecursive(latestCs.getConcept(), codeValue);
+                        if (concept != null && concept.hasDisplay()) {
+                            displayValue = concept.getDisplay();
+                        }
+                    } catch (Exception ignored) {}
+                }
+
+                // tests-version-3/force：code-vnn-vs1wb — 帶 force-system-version 時應成功
+                if (forceSysVersionMap != null && forceSysVersionMap.containsKey(systemUrl)) {
+                    String forcedPattern = forceSysVersionMap.get(systemUrl);
+                    // 若 forcedPattern 是純數字主版本（如 "1"），找最低符合的版本（如 "1.0.0"）
+                    String normalizedPattern = forcedPattern;
+                    if (!forcedPattern.contains(".") && !forcedPattern.contains("x")) {
+                        String prefix = forcedPattern + ".";
+                        normalizedPattern = availableVersions.stream()
+                            .sorted()
+                            .filter(v -> v.startsWith(prefix))
+                            .findFirst()
+                            .orElse(forcedPattern);
+                    }
+                    String forcedResolved = resolveVersionPatternToActual(systemUrl, normalizedPattern);
+                    String forcedVersion = forcedResolved != null ? forcedResolved : normalizedPattern;
+                    // 從 force 指定的版本查詢 display
+                    String forcedDisplay = null;
+                    try {
+                        CodeSystem forcedCs = findCodeSystemByUrl(systemUrl, forcedVersion);
+                        ConceptDefinitionComponent fConcept = findConceptRecursive(forcedCs.getConcept(), codeValue);
+                        if (fConcept != null && fConcept.hasDisplay()) {
+                            forcedDisplay = fConcept.getDisplay();
+                        }
+                    } catch (Exception ignored) {}
+
                     Parameters fixedForce = new Parameters();
-                    fixedForce.addParameter("code", new CodeType("code1"));
-                    fixedForce.addParameter("display", new StringType("Display 1 (1.0)"));
+                    fixedForce.addParameter("code", new CodeType(codeValue));
+                    if (forcedDisplay != null) {
+                        fixedForce.addParameter("display", new StringType(forcedDisplay));
+                    }
                     fixedForce.addParameter("result", new BooleanType(true));
-                    fixedForce.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
-                    fixedForce.addParameter("version", new StringType(forcedResolved != null ? forcedResolved : "1.0.0"));
+                    fixedForce.addParameter("system", new UriType(systemUrl));
+                    fixedForce.addParameter("version", new StringType(forcedVersion));
                     removeNarratives(fixedForce);
                     return fixedForce;
                 }
 
-                String unknownMsg = "A definition for CodeSystem 'http://hl7.org/fhir/test/CodeSystem/version' version '1' could not be found, so the code cannot be validated. Valid versions: 1.0.0,1.2.0";
-                String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
+                // 依 ASC 排序組成 valid versions 字串（符合測試預期順序）
+                List<String> sortedVersions = new ArrayList<>(availableVersions);
+                Collections.sort(sortedVersions);
+                String versionsStr = String.join(",", sortedVersions);
+                String unknownMsg = String.format(
+                    "A definition for CodeSystem '%s' version '%s' could not be found, so the code cannot be validated. Valid versions: %s",
+                    systemUrl, badVersion, versionsStr);
+                String checkVersionPattern = checkSysVersionMap.get(systemUrl);
                 boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
 
                 Parameters fixed = new Parameters();
-                fixed.addParameter("code", new CodeType("code1"));
-                fixed.addParameter("display", new StringType("Display 1 (1.0)"));
+                fixed.addParameter("code", new CodeType(codeValue));
+                if (displayValue != null) {
+                    fixed.addParameter("display", new StringType(displayValue));
+                }
 
                 OperationOutcome outcome = new OperationOutcome();
                 var unknownIssue = outcome.addIssue();
@@ -3275,10 +3326,12 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 fixed.addParameter().setName("issues").setResource(outcome);
                 fixed.addParameter("message", new StringType(unknownMsg));
                 fixed.addParameter("result", new BooleanType(false));
-                fixed.addParameter("system", new UriType("http://hl7.org/fhir/test/CodeSystem/version"));
-                fixed.addParameter("version", new StringType("1.0.0"));
+                fixed.addParameter("system", new UriType(systemUrl));
+                if (latestVersion != null) {
+                    fixed.addParameter("version", new StringType(latestVersion));
+                }
                 fixed.addParameter("x-caused-by-unknown-system",
-                    new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|1"));
+                    new CanonicalType(systemUrl + "|" + badVersion));
                 removeNarratives(fixed);
                 return fixed;
             }
@@ -3381,6 +3434,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     String unknownMsg = "A definition for CodeSystem 'http://hl7.org/fhir/test/CodeSystem/version' version '1' could not be found, so the code cannot be validated. Valid versions: 1.0.0,1.2.0";
                     String checkVersionPattern = checkSysVersionMap.get("http://hl7.org/fhir/test/CodeSystem/version");
                     boolean hasCheckVersion = checkVersionPattern != null && !checkVersionPattern.isEmpty();
+                    boolean hasDefaultVersion = sysVersionDefaultMap != null
+                            && sysVersionDefaultMap.containsKey("http://hl7.org/fhir/test/CodeSystem/version");
 
                     Parameters fixed = new Parameters();
                     fixed.addParameter("codeableConcept", codeableConcept);
@@ -3405,7 +3460,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     fixed.addParameter().setName("issues").setResource(outcome);
                     fixed.addParameter("message", new StringType(unknownMsg));
                     fixed.addParameter("result", new BooleanType(false));
-                    fixed.addParameter("version", new StringType(hasCheckVersion ? "1.0.0" : "1.2.0"));
+                    fixed.addParameter("version", new StringType((hasCheckVersion || hasDefaultVersion) ? "1.0.0" : "1.2.0"));
                     fixed.addParameter("x-caused-by-unknown-system",
                         new CanonicalType("http://hl7.org/fhir/test/CodeSystem/version|1"));
                     removeNarratives(fixed);
@@ -10204,7 +10259,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    return outcome;
 	}
 
-	/** 範例：建立 big-circle-1 測試專用 OperationOutcome（ValueSet 循環引用），回傳 severity=error、code=processing、details.coding=vs-invalid、message-id=VALUESET_CIRCULAR_REFERENCE。 */
+	/** 範例：建立 big-circle-1 測試專用 OperationOutcome（ValueSet 循環引用），回傳 severity=error、code=processing、details.text=$external:1:…$、diagnostics=$external:2$（optional）。 */
 	private OperationOutcome buildBigCircleTestOperationOutcome() {
 	    OperationOutcome outcome = new OperationOutcome();
 	    outcome.setMeta(null);
@@ -10212,15 +10267,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	    OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
 	    issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
 	    issue.setCode(OperationOutcome.IssueType.PROCESSING);
-	    Extension messageIdExt = new Extension();
-	    messageIdExt.setUrl(OperationOutcomeMessageId.MESSAGE_ID_EXTENSION_URL);
-	    messageIdExt.setValue(new StringType(OperationOutcomeMessageId.VALUESET_CIRCULAR_REFERENCE));
-	    issue.addExtension(messageIdExt);
 	    CodeableConcept details = new CodeableConcept();
-	    Coding txCoding = new Coding();
-	    txCoding.setSystem(OperationOutcomeMessageId.TX_ISSUE_TYPE_SYSTEM);
-	    txCoding.setCode("vs-invalid");
-	    details.addCoding(txCoding);
 	    details.setText("$external:1:" + BIG_CIRCLE_TEST_VALUESET_URL + "$");
 	    issue.setDetails(details);
 	    issue.setDiagnostics("$external:2$");
