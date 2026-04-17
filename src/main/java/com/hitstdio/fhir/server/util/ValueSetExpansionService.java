@@ -9,6 +9,7 @@ import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.CodeSystem.ConceptDefinitionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ConceptReferenceComponent;
 import org.hl7.fhir.r4.model.ValueSet.ConceptSetComponent;
+import org.hl7.fhir.r4.model.ValueSet.ConceptSetFilterComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionComponent;
 import org.hl7.fhir.r4.model.ValueSet.ValueSetExpansionContainsComponent;
 
@@ -135,6 +136,32 @@ public class ValueSetExpansionService {
 			}
 		}
 
+		// Discover standard FHIR concept properties used explicitly as filter criteria.
+		// Only FHIR-standard properties (URI under http://hl7.org/fhir/concept-properties#)
+		// are auto-included; custom properties are ignored.
+		if (valueSet.hasCompose()) {
+			for (ConceptSetComponent include : valueSet.getCompose().getInclude()) {
+				if (!include.hasFilter()) continue;
+				CodeSystem filterCs = null;
+				if (include.hasSystem() && includedCodeSystems != null) {
+					String sys = include.getSystem();
+					for (CodeSystem cs : includedCodeSystems) {
+						if (sys.equals(cs.getUrl())) {
+							filterCs = cs;
+							break;
+						}
+					}
+				}
+				for (ConceptSetFilterComponent filter : include.getFilter()) {
+					String propCode = filter.getProperty();
+					if (propCode != null && !"concept".equals(propCode)
+							&& isStandardFhirConceptProperty(propCode, filterCs)) {
+						discoveredProperties.add(propCode);
+					}
+				}
+			}
+		}
+
 		if (!discoveredProperties.isEmpty()) {
 			List<CodeType> originalProperties = request.getProperty();
 			Set<String> existingCodes = originalProperties.stream().map(CodeType::getCode).collect(Collectors.toSet());
@@ -163,6 +190,22 @@ public class ValueSetExpansionService {
 				scanConceptsForProperties(concept.getConcept(), discoveredProperties);
 			}
 		}
+	}
+
+	private static final String STATUS_PROPERTY_URI = "http://hl7.org/fhir/concept-properties#status";
+
+	private boolean isStandardFhirConceptProperty(String code, CodeSystem cs) {
+		// Only 'status' is auto-discovered from filter criteria.
+		// Other standard properties (notSelectable, inactive, etc.) are already
+		// conveyed by abstract/inactive flags in expansion.contains.
+		if (cs != null) {
+			for (CodeSystem.PropertyComponent prop : cs.getProperty()) {
+				if (code.equals(prop.getCode())) {
+					return STATUS_PROPERTY_URI.equals(prop.getUri());
+				}
+			}
+		}
+		return "status".equals(code);
 	}
 
 	/**

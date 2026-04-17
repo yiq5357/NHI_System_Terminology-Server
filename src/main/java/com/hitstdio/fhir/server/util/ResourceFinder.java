@@ -170,7 +170,10 @@ public class ResourceFinder {
                     "' version '" + version + "' could not be found, so the value set cannot be expanded.";
 
                 if (!availableVersions.isEmpty()) {
-                    String validVersions = String.join(" or ", availableVersions);
+                    // LEGACY_TX_BEHAVIOR: comma-separated → " or "-separated (vs-expand-v-wb)
+                    String validVersions = FeatureFlags.LEGACY_TX_BEHAVIOR
+                        ? String.join(",", availableVersions)
+                        : String.join(" or ", availableVersions);
                     diagnosticMessage += " Valid versions: " + validVersions;
                 }
 
@@ -214,9 +217,12 @@ public class ResourceFinder {
             issue.setCode(OperationOutcome.IssueType.NOTFOUND);
 
             CodeableConcept details = new CodeableConcept();
-            details.addCoding()
-                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                .setCode("not-found");
+            // LEGACY_TX_BEHAVIOR: no coding (extensions-echo-bad-supplement)
+            if (!FeatureFlags.LEGACY_TX_BEHAVIOR) {
+                details.addCoding()
+                    .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                    .setCode("not-found");
+            }
             details.setText("Unable to find CodeSystem for canonical URL '" + system +
                             (version != null ? "|" + version : "") + "'");
             issue.setDetails(details);
@@ -261,9 +267,12 @@ public class ResourceFinder {
             issue.setCode(OperationOutcome.IssueType.NOTFOUND);
 
             CodeableConcept details = new CodeableConcept();
-            details.addCoding()
-                .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-                .setCode("not-found");
+            // LEGACY_TX_BEHAVIOR: no coding (extensions-echo-bad-supplement)
+            if (!FeatureFlags.LEGACY_TX_BEHAVIOR) {
+                details.addCoding()
+                    .setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+                    .setCode("not-found");
+            }
             details.setText("Unable to find CodeSystem for canonical URL '" + system +
                             (version != null ? "|" + version : "") + "'");
             issue.setDetails(details);

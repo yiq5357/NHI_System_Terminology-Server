@@ -172,11 +172,14 @@ public class ConceptCollector {
 						importedVs.getUrl() + "|" + importedVs.getVersion());
 
 				// Echo default-valueset-version if this ValueSet was resolved via a default version
-				String includeValue = valueSetToInclude.getValue();
-				boolean hasNoVersionInInclude = includeValue != null && !includeValue.contains("|");
-				if (hasNoVersionInInclude
-						&& request.getDefaultValueSetVersions().containsKey(importedVs.getUrl())) {
-					expansion.addParameter().setName("default-valueset-version").setValue(resolvedCanonical.copy());
+				// LEGACY_TX_BEHAVIOR: skip this block (indirect-expand-zero-pinned)
+				if (!FeatureFlags.LEGACY_TX_BEHAVIOR) {
+					String includeValue = valueSetToInclude.getValue();
+					boolean hasNoVersionInInclude = includeValue != null && !includeValue.contains("|");
+					if (hasNoVersionInInclude
+							&& request.getDefaultValueSetVersions().containsKey(importedVs.getUrl())) {
+						expansion.addParameter().setName("default-valueset-version").setValue(resolvedCanonical.copy());
+					}
 				}
 
 				expansion.addParameter().setName("used-valueset").setValue(resolvedCanonical.copy());
@@ -673,7 +676,11 @@ public class ConceptCollector {
 		details.setText(errorMessage);
 		issue.setDetails(details);
 
-		String location = String.format("ValueSet.compose.include[%d].filter[%d]", includeIndex, filterIndex);
+		// LEGACY_TX_BEHAVIOR: old format included ValueSet URL/version and .value suffix (broken-filter-expand)
+		String location = FeatureFlags.LEGACY_TX_BEHAVIOR
+			? String.format("ValueSet[%s|%s].compose.include[%d].filter[%d].value",
+				sourceValueSet.getUrl(), sourceValueSet.getVersion(), includeIndex, filterIndex)
+			: String.format("ValueSet.compose.include[%d].filter[%d]", includeIndex, filterIndex);
 		issue.addLocation(location);
 		issue.addExpression(location);
 
