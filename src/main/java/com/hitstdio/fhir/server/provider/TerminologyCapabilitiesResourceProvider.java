@@ -55,7 +55,7 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 	            terminologyCapabilities.setExpansion(expansion);
 	            
 	            List<String> parameterNames = java.util.Arrays.asList(
-	                    "activeOnly", "count", "displayLanguage", "excludeNested",
+	                    "activeOnly", "check-system-version", "count", "displayLanguage", "excludeNested",
 	                    "force-system-version", "includeDefinition", "includeDesignations",
 	                    "offset", "property", "system-version", "tx-resource"
 	                );
@@ -80,12 +80,14 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 	                if (resource instanceof CodeSystem) {
 	                    CodeSystem cs = (CodeSystem) resource;
 	                    if (cs.getUrl() != null) {
-	                    	terminologyCapabilities.addCodeSystem()
-	                        .setUri(cs.getUrl())
-	                        .setVersion(Collections.singletonList(
-	                            new TerminologyCapabilities.TerminologyCapabilitiesCodeSystemVersionComponent()
-	                                .setCode(cs.getVersion())
-	                        ));
+	                    	TerminologyCapabilities.TerminologyCapabilitiesCodeSystemComponent csComponent =
+	                            terminologyCapabilities.addCodeSystem().setUri(cs.getUrl());
+	                        if (cs.hasVersion()) {
+	                            csComponent.setVersion(Collections.singletonList(
+	                                new TerminologyCapabilities.TerminologyCapabilitiesCodeSystemVersionComponent()
+	                                    .setCode(cs.getVersion())
+	                            ));
+	                        }
 	                    }
 	                }
 	            }
