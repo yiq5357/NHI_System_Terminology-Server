@@ -7,8 +7,11 @@ import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
+import ca.uhn.fhir.rest.annotation.OptionalParam;
 import ca.uhn.fhir.rest.annotation.Patch;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
+import ca.uhn.fhir.rest.annotation.Search;
+import ca.uhn.fhir.rest.api.server.IBundleProvider;
 import ca.uhn.fhir.rest.api.MethodOutcome;
 import ca.uhn.fhir.rest.api.PatchTypeEnum;
 import ca.uhn.fhir.rest.api.SortOrderEnum;
@@ -209,6 +212,34 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return ValueSet.class;
     }
     
+    @Search
+    public IBundleProvider search(
+            @OptionalParam(name = ValueSet.SP_URL) UriParam url,
+            @OptionalParam(name = ValueSet.SP_VERSION) TokenParam version,
+            @OptionalParam(name = "_id") TokenParam id,
+            @OptionalParam(name = ValueSet.SP_NAME) StringParam name,
+            @OptionalParam(name = ValueSet.SP_STATUS) TokenParam status,
+            RequestDetails theRequestDetails
+    ) {
+        SearchParameterMap searchParams = new SearchParameterMap();
+        if (url != null) {
+            searchParams.add(ValueSet.SP_URL, url);
+        }
+        if (version != null) {
+            searchParams.add(ValueSet.SP_VERSION, version);
+        }
+        if (id != null) {
+            searchParams.add("_id", id);
+        }
+        if (name != null) {
+            searchParams.add(ValueSet.SP_NAME, name);
+        }
+        if (status != null) {
+            searchParams.add(ValueSet.SP_STATUS, status);
+        }
+        return myValueSetDao.search(searchParams, systemRequestDetails);
+    }
+
     @Patch
     public MethodOutcome patch(
         @IdParam IdType theId,
