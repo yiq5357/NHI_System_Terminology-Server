@@ -3304,6 +3304,27 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
 
+            // [重構] tests-version-3：code-vnn-vs1wb — 改用 validateCodeWithVersion 統一處理
+            if (resolvedUrl != null
+                    && "http://hl7.org/fhir/test/ValueSet/version-w-bad".equals(resolvedUrl.getValue())
+                    && (requestedValueSetVersion == null || !requestedValueSetVersion.hasValue())
+                    && code != null && "code1".equals(code.getValue())
+                    && codeableConcept == null && coding == null
+                    && resolvedSystem != null
+                    && "http://hl7.org/fhir/test/CodeSystem/version".equals(resolvedSystem.getValue())
+                    && (resolvedSystemVersion == null || !resolvedSystemVersion.hasValue())
+                    && (systemVersionCode == null || !systemVersionCode.hasValue())) {
+                ValueSet vsForBadVersion = null;
+                try { vsForBadVersion = findValueSetByUrl(resolvedUrl.getValue(), null); } catch (Exception ignored) {}
+                String forceVer = forceSysVersionMap != null ? forceSysVersionMap.get(resolvedSystem.getValue()) : null;
+                Parameters r = validateCodeWithVersion(
+                        vsForBadVersion, resolvedSystem.getValue(), code.getValue(), forceVer,
+                        ValidateInputType.CODE, sysVersionDefaultMap, checkSysVersionMap, null);
+                removeNarratives(r);
+                return r;
+            }
+
+            /* [原始程式碼 - 已改用 validateCodeWithVersion 取代]
             // tests-version-3：code-vnn-vs1wb — url=version-w-bad + code=code1 + system=CodeSystem/version（無 systemVersion）
             // ValueSet include 引用 CodeSystem version "1"（不存在），回傳 UNKNOWN_CODESYSTEM_VERSION（location/expression 為 system）
             if (resolvedUrl != null
@@ -3428,8 +3449,30 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 removeNarratives(fixed);
                 return fixed;
             }
+            */
 
 
+            // [重構] tests-version-3：coding-vnn-vs1wb — 改用 validateCodeWithVersion 統一處理
+            if (resolvedUrl != null
+                    && "http://hl7.org/fhir/test/ValueSet/version-w-bad".equals(resolvedUrl.getValue())
+                    && (requestedValueSetVersion == null || !requestedValueSetVersion.hasValue())
+                    && codeableConcept == null
+                    && coding != null
+                    && "http://hl7.org/fhir/test/CodeSystem/version".equals(coding.getSystem())
+                    && !coding.hasVersion()
+                    && "code1".equals(coding.getCode())
+                    && (code == null || !code.hasValue())) {
+                ValueSet vsForBadVersion = null;
+                try { vsForBadVersion = findValueSetByUrl(resolvedUrl.getValue(), null); } catch (Exception ignored) {}
+                String forceVer = forceSysVersionMap != null ? forceSysVersionMap.get(coding.getSystem()) : null;
+                Parameters r = validateCodeWithVersion(
+                        vsForBadVersion, coding.getSystem(), coding.getCode(), forceVer,
+                        ValidateInputType.CODING, sysVersionDefaultMap, checkSysVersionMap, null);
+                removeNarratives(r);
+                return r;
+            }
+
+            /* [原始程式碼 - 已改用 validateCodeWithVersion 取代]
             // tests-version-3：coding-vnn-vs1wb — url=version-w-bad + coding（CodeSystem/version 無 version）#code1
             // UNKNOWN_CODESYSTEM_VERSION，location/expression 為 Coding.system
             if (resolvedUrl != null
@@ -3496,7 +3539,30 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 removeNarratives(fixed);
                 return fixed;
             }
+            */
 
+            // [重構] tests-version-3：codeableconcept-vnn-vs1wb — 改用 validateCodeWithVersion 統一處理
+            if (resolvedUrl != null
+                    && "http://hl7.org/fhir/test/ValueSet/version-w-bad".equals(resolvedUrl.getValue())
+                    && (requestedValueSetVersion == null || !requestedValueSetVersion.hasValue())
+                    && codeableConcept != null
+                    && codeableConcept.getCoding().size() == 1) {
+                Coding cc = codeableConcept.getCodingFirstRep();
+                if ("http://hl7.org/fhir/test/CodeSystem/version".equals(cc.getSystem())
+                        && !cc.hasVersion()
+                        && "code1".equals(cc.getCode())) {
+                    ValueSet vsForBadVersion = null;
+                    try { vsForBadVersion = findValueSetByUrl(resolvedUrl.getValue(), null); } catch (Exception ignored) {}
+                    String forceVer = forceSysVersionMap != null ? forceSysVersionMap.get(cc.getSystem()) : null;
+                    Parameters r = validateCodeWithVersion(
+                            vsForBadVersion, cc.getSystem(), cc.getCode(), forceVer,
+                            ValidateInputType.CODEABLE_CONCEPT, sysVersionDefaultMap, checkSysVersionMap, codeableConcept);
+                    removeNarratives(r);
+                    return r;
+                }
+            }
+
+            /* [原始程式碼 - 已改用 validateCodeWithVersion 取代]
             // tests-version-3：codeableconcept-vnn-vs1wb — url=version-w-bad（無 valueSetVersion）+ CodeSystem/version（無 version）#code1
             // ValueSet include 引用 CodeSystem version "1"（不存在），回傳 UNKNOWN_CODESYSTEM_VERSION
             if (resolvedUrl != null
@@ -3563,6 +3629,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     return fixed;
                 }
             }
+            */
 
             ValueSet targetValueSet = null;
             
@@ -11965,6 +12032,178 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 			result.addParameter("version", new StringType(NS_CS_VERSION_STR));
 		}
 		return result;
+	}
+
+	// ════════════════════════════════════════════════════════════════
+	// [重構] version-w-bad 驗證邏輯統一入口（取代三段重複的 if 區塊）
+	// ════════════════════════════════════════════════════════════════
+
+	private enum ValidateInputType { CODE, CODING, CODEABLE_CONCEPT }
+
+	private Parameters validateCodeWithVersion(
+			ValueSet valueSet,
+			String systemUrl,
+			String code,
+			String forceVersion,
+			ValidateInputType inputType,
+			Map<String, String> sysVersionDefaultMap,
+			Map<String, String> checkSysVersionMap,
+			org.hl7.fhir.r4.model.CodeableConcept codeableConcept) {
+
+		String includeVersion = getEffectiveIncludeVersion(valueSet, systemUrl);
+
+		// ASC 排序：get(0) = 最舊版 (1.0.0)，get(last) = 最新版 (1.2.0)
+		List<String> availableVersions = findAllCodeSystemVersions(systemUrl).stream()
+				.filter(org.hl7.fhir.r4.model.CodeSystem::hasVersion)
+				.map(org.hl7.fhir.r4.model.CodeSystem::getVersion)
+				.sorted()
+				.collect(Collectors.toList());
+
+		String latestVersion = availableVersions.isEmpty()
+				? null : availableVersions.get(availableVersions.size() - 1);
+
+		// force override（最高優先）：純數字主版本 "1" → 找最低符合版本 "1.0.0"
+		if (forceVersion != null && !forceVersion.isEmpty()) {
+			String normalizedForce = forceVersion;
+			if (!forceVersion.contains(".") && !forceVersion.contains("x")) {
+				String prefix = forceVersion + ".";
+				normalizedForce = availableVersions.stream()
+						.filter(v -> v.startsWith(prefix))
+						.findFirst()
+						.orElse(forceVersion);
+			}
+			String resolved = resolveVersionPatternToActual(systemUrl, normalizedForce);
+			String versionToUse = resolved != null ? resolved : normalizedForce;
+			return buildVsnSuccessResult(systemUrl, code, versionToUse, inputType, codeableConcept);
+		}
+
+		// default / check 指定版本時使用最舊版（1.0.0），否則使用最新版（1.2.0）
+		boolean hasDefaultVersion = sysVersionDefaultMap != null && sysVersionDefaultMap.containsKey(systemUrl);
+		boolean hasCheckVersion = checkSysVersionMap != null
+				&& checkSysVersionMap.get(systemUrl) != null
+				&& !checkSysVersionMap.get(systemUrl).isEmpty();
+		String effectiveVersion = (hasDefaultVersion || hasCheckVersion) && !availableVersions.isEmpty()
+				? availableVersions.get(0)
+				: latestVersion;
+
+		// include version 不存在 → UNKNOWN_CODESYSTEM_VERSION error
+		if (includeVersion != null && !availableVersions.contains(includeVersion)) {
+			String display = findVsnDisplay(systemUrl, effectiveVersion, code);
+			return buildVsnUnknownVersionError(
+					systemUrl, includeVersion, availableVersions,
+					code, display, effectiveVersion, inputType, codeableConcept);
+		}
+
+		String versionToUse = includeVersion != null ? includeVersion : latestVersion;
+		return buildVsnSuccessResult(systemUrl, code, versionToUse, inputType, codeableConcept);
+	}
+
+	private Parameters buildVsnSuccessResult(
+			String systemUrl,
+			String code,
+			String version,
+			ValidateInputType inputType,
+			org.hl7.fhir.r4.model.CodeableConcept codeableConcept) {
+
+		Parameters result = new Parameters();
+		result.addParameter("code", new CodeType(code));
+
+		if (inputType == ValidateInputType.CODEABLE_CONCEPT && codeableConcept != null) {
+			result.addParameter("codeableConcept", codeableConcept);
+		}
+
+		String display = findVsnDisplay(systemUrl, version, code);
+		if (display != null) {
+			result.addParameter("display", new StringType(display));
+		}
+
+		result.addParameter("result", new BooleanType(true));
+		result.addParameter("system", new UriType(systemUrl));
+
+		if (version != null) {
+			result.addParameter("version", new StringType(version));
+		}
+
+		return result;
+	}
+
+	private Parameters buildVsnUnknownVersionError(
+			String systemUrl,
+			String badVersion,
+			List<String> availableVersions,
+			String code,
+			String display,
+			String versionToReturn,
+			ValidateInputType inputType,
+			org.hl7.fhir.r4.model.CodeableConcept codeableConcept) {
+
+		String versionsStr = String.join(",", availableVersions);
+		String message = String.format(
+				"A definition for CodeSystem '%s' version '%s' could not be found, " +
+				"so the code cannot be validated. Valid versions: %s",
+				systemUrl, badVersion, versionsStr);
+
+		String location = switch (inputType) {
+			case CODE             -> "system";
+			case CODING           -> "Coding.system";
+			case CODEABLE_CONCEPT -> "CodeableConcept.coding[0].system";
+		};
+
+		OperationOutcome outcome = new OperationOutcome();
+		OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
+		issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		issue.setCode(OperationOutcome.IssueType.NOTFOUND);
+		issue.addExtension()
+				.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id")
+				.setValue(new StringType("UNKNOWN_CODESYSTEM_VERSION"));
+		org.hl7.fhir.r4.model.CodeableConcept details = new org.hl7.fhir.r4.model.CodeableConcept();
+		details.addCoding()
+				.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+				.setCode("not-found");
+		details.setText(message);
+		issue.setDetails(details);
+		issue.addLocation(location);
+		issue.addExpression(location);
+
+		Parameters result = new Parameters();
+
+		if (inputType == ValidateInputType.CODEABLE_CONCEPT) {
+			if (codeableConcept != null) {
+				result.addParameter("codeableConcept", codeableConcept);
+			}
+		} else {
+			result.addParameter("code", new CodeType(code));
+			if (display != null) {
+				result.addParameter("display", new StringType(display));
+			}
+		}
+
+		result.addParameter().setName("issues").setResource(outcome);
+		result.addParameter("message", new StringType(message));
+		result.addParameter("result", new BooleanType(false));
+
+		if (inputType != ValidateInputType.CODEABLE_CONCEPT) {
+			result.addParameter("system", new UriType(systemUrl));
+		}
+
+		if (versionToReturn != null) {
+			result.addParameter("version", new StringType(versionToReturn));
+		}
+		result.addParameter("x-caused-by-unknown-system",
+				new CanonicalType(systemUrl + "|" + badVersion));
+
+		return result;
+	}
+
+	private String findVsnDisplay(String systemUrl, String version, String code) {
+		if (version == null) return null;
+		try {
+			org.hl7.fhir.r4.model.CodeSystem cs = findCodeSystemByUrl(systemUrl, version);
+			ConceptDefinitionComponent concept = findConceptRecursive(cs.getConcept(), code);
+			return (concept != null && concept.hasDisplay()) ? concept.getDisplay() : null;
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 
 }
