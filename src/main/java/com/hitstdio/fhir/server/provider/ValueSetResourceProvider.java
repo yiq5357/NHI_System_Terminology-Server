@@ -12238,7 +12238,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
             for (Parameters validationInput : validations) {
-                IBaseResource result = executeBatchItem(validationInput, globalUrl, globalLenient);
+                Resource result = executeBatchItem(validationInput, globalUrl, globalLenient);
                 output.addParameter().setName("validation").setResource(result);
             }
         } finally {
@@ -12248,7 +12248,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         return output;
     }
 
-    private IBaseResource executeBatchItem(
+    private Resource executeBatchItem(
             Parameters itemParams,
             UriType globalUrl,
             BooleanType globalLenient) {
@@ -12300,7 +12300,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         BooleanType effectiveLenient = localLenient != null ? localLenient : globalLenient;
 
         try {
-            return validateCode(
+            return (Resource) validateCode(
                 null,             // resourceId
                 code,             // code
                 system,           // system
@@ -12323,7 +12323,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 null,             // system-version list
                 null,             // check-system-version list
                 null,             // force-system-version list
-                null,             // txResources（不再傳入，避免重新注冊）
+                null,             // txResources
                 null              // validations（null 確保不重入 batch 模式）
             );
         } catch (UnprocessableEntityException e) {
