@@ -80,6 +80,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     
     private final RequestDetails systemRequestDetails;
 
+    // $batch-validate 用：存放 tx-resource 提供的 inline ValueSet，key 為 ValueSet URL
+    private static final ThreadLocal<Map<String, ValueSet>> txResourceRegistry =
+            ThreadLocal.withInitial(HashMap::new);
+
     /** 範例一、二、三：bad-supplement 測試用 ValueSet URL（validate-code-bad-supplement / validate-coding-bad-supplement / validate-codeableconcept-bad-supplement）。 */
     private static final String BAD_SUPPLEMENT_TEST_VALUESET_URL = "http://hl7.org/fhir/test/ValueSet/extensions-bad-supplement";
     /** 範例四、五：引用不存在的 ValueSet（如 simple-import-bad 引用 simple-filter-isaX）時，回傳單一 issue Unable_to_resolve_value_Set_、message 與 details.text 一致。 */
@@ -1463,9 +1467,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "default-valueset-version") CanonicalType defaultValuesetVersion,
             @OperationParam(name = "system-version") List<CanonicalType> theSystemVersionList,
             @OperationParam(name = "check-system-version") List<CanonicalType> theCheckSystemVersion,
-            @OperationParam(name = "force-system-version") List<CanonicalType> theForceSystemVersion
+            @OperationParam(name = "force-system-version") List<CanonicalType> theForceSystemVersion,
+            @OperationParam(name = "tx-resource") List<IBaseResource> txResources,
+            @OperationParam(name = "validation") List<Parameters> validations
     ) {
-    	
+
+        // Batch mode：有 validation 參數時，優先走 batch 流程
+        if (validations != null && !validations.isEmpty()) {
+            return handleBatchValidation(txResources, url, lenientDisplayValidation, validations);
+        }
+
     	// 在所有驗證之前先檢查 displayLanguage 的有效性
     	if (displayLanguage != null && !displayLanguage.isEmpty()) {
             if (!isValidLanguageCode(displayLanguage.getValue())) {
@@ -7271,6 +7282,10 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
     // 根據 URL 查找 ValueSet
     private ValueSet findValueSetByUrl(String url, String version) {
+        // $batch-validate tx-resource：優先使用請求中提供的 inline ValueSet
+        ValueSet inline = txResourceRegistry.get().get(url);
+        if (inline != null) return inline;
+
     	var searchParams = new SearchParameterMap();
         searchParams.add(ValueSet.SP_URL, new UriParam(url));
         
@@ -12205,5 +12220,129 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 			return null;
 		}
 	}
+
+    private Parameters handleBatchValidation(
+            List<IBaseResource> txResources,
+            UriType globalUrl,
+            BooleanType globalLenient,
+            List<Parameters> validations) {
+
+        Parameters output = new Parameters();
+        try {
+            // 將所有 tx-resource 注冊到 ThreadLocal，供 findValueSetByUrl() 優先使用
+            if (txResources != null) {
+                for (IBaseResource r : txResources) {
+                    if (r instanceof ValueSet vs && vs.hasUrl()) {
+                        txResourceRegistry.get().put(vs.getUrl(), vs);
+                    }
+                }
+            }
+            for (Parameters validationInput : validations) {
+                IBaseResource result = executeBatchItem(validationInput, globalUrl, globalLenient);
+                output.addParameter().setName("validation").setResource(result);
+            }
+        } finally {
+            // 確保 ThreadLocal 一定清除，避免 thread pool 汙染
+            txResourceRegistry.get().clear();
+        }
+        return output;
+    }
+
+    private IBaseResource executeBatchItem(
+            Parameters itemParams,
+            UriType globalUrl,
+            BooleanType globalLenient) {
+
+        Coding coding = null;
+        CodeableConcept codeableConcept = null;
+        CodeType code = null;
+        CanonicalType system = null;
+        StringType display = null;
+        BooleanType localLenient = null;
+        boolean hasValidInput = false;
+        StringBuilder seenParams = new StringBuilder();
+
+        for (ParametersParameterComponent p : itemParams.getParameter()) {
+            if (seenParams.length() > 0) seenParams.append("|");
+            String fhirType = p.getValue() != null ? p.getValue().fhirType() : "null";
+            seenParams.append(p.getName()).append(":").append(fhirType);
+
+            switch (p.getName()) {
+                case "coding":
+                    if (p.getValue() instanceof Coding c) { coding = c; hasValidInput = true; }
+                    break;
+                case "codeableConcept":
+                    if (p.getValue() instanceof CodeableConcept cc) { codeableConcept = cc; hasValidInput = true; }
+                    break;
+                case "code":
+                    if (p.getValue() instanceof CodeType ct) { code = ct; hasValidInput = true; }
+                    break;
+                case "system":
+                    if (p.getValue() instanceof UriType u) system = new CanonicalType(u.getValue());
+                    break;
+                case "display":
+                    if (p.getValue() instanceof StringType s) display = s;
+                    break;
+                case "lenient-display-validation":
+                    if (p.getValue() instanceof BooleanType b) localLenient = b;
+                    break;
+            }
+        }
+
+        // 無有效輸入欄位（coding/codeableConcept/code）→ 直接回傳 OperationOutcome
+        if (!hasValidInput) {
+            return buildBatchItemError(
+                "Unable to find code to validate (looked for coding | codeableConcept | code in parameters ="
+                    + seenParams + ")");
+        }
+
+        // 局部 lenient 覆蓋全域
+        BooleanType effectiveLenient = localLenient != null ? localLenient : globalLenient;
+
+        try {
+            return validateCode(
+                null,             // resourceId
+                code,             // code
+                system,           // system
+                null,             // systemVersion (StringType)
+                null,             // systemVersionCode (CodeType)
+                globalUrl,        // url
+                null,             // valueSet
+                null,             // version
+                null,             // valueSetVersion
+                display,          // display
+                coding,           // coding
+                codeableConcept,  // codeableConcept
+                null,             // displayLanguage
+                null,             // abstract
+                null,             // activeOnly
+                null,             // inferSystem
+                effectiveLenient, // lenient-display-validation
+                null,             // valueset-membership-only
+                null,             // default-valueset-version
+                null,             // system-version list
+                null,             // check-system-version list
+                null,             // force-system-version list
+                null,             // txResources（不再傳入，避免重新注冊）
+                null              // validations（null 確保不重入 batch 模式）
+            );
+        } catch (UnprocessableEntityException e) {
+            if (e.getOperationOutcome() instanceof OperationOutcome oo) return oo;
+            return buildBatchItemError(e.getMessage());
+        } catch (Exception e) {
+            return buildBatchItemError(e.getMessage());
+        }
+    }
+
+    private OperationOutcome buildBatchItemError(String message) {
+        OperationOutcome oo = new OperationOutcome();
+        OperationOutcome.OperationOutcomeIssueComponent issue = oo.addIssue();
+        issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+        issue.setCode(OperationOutcome.IssueType.INVALID);
+        CodeableConcept details = new CodeableConcept();
+        details.setText(message);
+        issue.setDetails(details);
+        return oo;
+    }
 
 }
