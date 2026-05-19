@@ -162,14 +162,17 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private static final String NS_VS_UNPROP_FALSE_URL  = "http://hl7.org/fhir/test/ValueSet/notSelectable-unprop-false";
     private static final String NS_VS_UNPROP_TRUE_URL   = "http://hl7.org/fhir/test/ValueSet/notSelectable-unprop-true";
     /** notSelectable 代碼值與顯示名稱 */
-    private static final String NS_CODE_S      = "codeS";
-    private static final String NS_CODE_NS     = "codeNS";
-    private static final String NS_DISPLAY_S   = "Selectable Code";
-    private static final String NS_DISPLAY_NS  = "Not Selectable Code";
+    private static final String NS_CODE_S        = "codeS";
+    private static final String NS_CODE_NS       = "codeNS";
+    private static final String NS_DISPLAY_S     = "Selectable Code";
+    private static final String NS_DISPLAY_NS    = "Not Selectable Code";
+    private static final String NS_DISPLAY_UNKNOWN = "Unknown Selectable State";
     /** notSelectable ValueSet URL → CodeSystem URL 映射（static 初始化） */
     private static final Map<String, String> NS_VS_TO_CS_MAP;
-    /** notSelectable ValueSet URL → 允許代碼集合 映射（static 初始化） */
+    /** notSelectable ValueSet URL → 允許代碼集合（包含模式：在集合內才通過）映射 */
     private static final Map<String, Set<String>> NS_VS_ALLOWED_CODES_MAP;
+    /** notSelectable ValueSet URL → 排除代碼集合（排除模式：在集合內才拒絕，其餘含未知代碼均通過）映射 */
+    private static final Map<String, Set<String>> NS_VS_EXCLUDED_CODES_MAP;
     static {
         Map<String, String> vsToCs = new HashMap<>();
         vsToCs.put(NS_VS_NOPROP_FALSE_URL, NS_CS_NOPROP_URL);
@@ -195,12 +198,16 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         allowedCodes.put(NS_VS_PROP_TRUE_URL,     nsOnly);
         allowedCodes.put(NS_VS_PROP_TRUEUC_URL,   empty);   // case-sensitive 不匹配，無代碼
         allowedCodes.put(NS_VS_PROP_IN_URL,       nsOnly);
-        allowedCodes.put(NS_VS_PROP_OUT_URL,      sOnly);
+        // NS_VS_PROP_OUT_URL 使用排除模式，移至 NS_VS_EXCLUDED_CODES_MAP
         allowedCodes.put(NS_VS_REPROP_FALSE_URL,  sOnly);
         allowedCodes.put(NS_VS_REPROP_TRUE_URL,   nsOnly);
         allowedCodes.put(NS_VS_UNPROP_FALSE_URL,  sOnly);
         allowedCodes.put(NS_VS_UNPROP_TRUE_URL,   nsOnly);
         NS_VS_ALLOWED_CODES_MAP = Collections.unmodifiableMap(allowedCodes);
+
+        Map<String, Set<String>> excludedCodes = new HashMap<>();
+        excludedCodes.put(NS_VS_PROP_OUT_URL, nsOnly);  // 排除 notSelectable 代碼；其餘（含未知）均通過
+        NS_VS_EXCLUDED_CODES_MAP = Collections.unmodifiableMap(excludedCodes);
     }
 
     public ValueSetResourceProvider(DaoRegistry theDaoRegistry) {
@@ -12002,50 +12009,70 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		}
 
 		String requestedCode = coding.getCode();
+
+		// 排除模式：黑名單中的代碼拒絕，其餘（含 CodeSystem 中不存在的未知代碼）均通過
+		Set<String> excludedCodes = NS_VS_EXCLUDED_CODES_MAP.get(vsUrl);
+		if (excludedCodes != null) {
+			return excludedCodes.contains(requestedCode)
+					? buildNsNotInVsResponse(requestedCode, expectedCsUrl, vsUrl)
+					: buildNsSuccessResponse(requestedCode, expectedCsUrl);
+		}
+
+		// 包含模式：白名單中的代碼通過，其餘拒絕
 		Set<String> allowedCodes = NS_VS_ALLOWED_CODES_MAP.get(vsUrl);
+		return (allowedCodes != null && allowedCodes.contains(requestedCode))
+				? buildNsSuccessResponse(requestedCode, expectedCsUrl)
+				: buildNsNotInVsResponse(requestedCode, expectedCsUrl, vsUrl);
+	}
+
+	private Parameters buildNsSuccessResponse(String code, String csUrl) {
+		String display;
+		if (NS_CODE_S.equals(code)) {
+			display = NS_DISPLAY_S;
+		} else if (NS_CODE_NS.equals(code)) {
+			display = NS_DISPLAY_NS;
+		} else {
+			display = NS_DISPLAY_UNKNOWN;
+		}
+		Parameters result = new Parameters();
+		result.addParameter("code", new CodeType(code));
+		result.addParameter("display", new StringType(display));
+		result.addParameter("result", new BooleanType(true));
+		result.addParameter("system", new UriType(csUrl));
+		result.addParameter("version", new StringType(NS_CS_VERSION_STR));
+		return result;
+	}
+
+	private Parameters buildNsNotInVsResponse(String code, String csUrl, String vsUrl) {
+		String vsWithVersion = vsUrl + "|" + NS_VS_VERSION_STR;
+		String notFoundMsg = String.format(
+				"The provided code '%s#%s' was not found in the value set '%s'",
+				csUrl, code, vsWithVersion);
+
+		OperationOutcome outcome = new OperationOutcome();
+		OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
+		issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
+		issue.setCode(OperationOutcome.IssueType.CODEINVALID);
+		Extension msgIdExt = new Extension();
+		msgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+		msgIdExt.setValue(new StringType("None_of_the_provided_codes_are_in_the_value_set_one"));
+		issue.addExtension(msgIdExt);
+		CodeableConcept details = new CodeableConcept();
+		details.addCoding()
+				.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
+				.setCode("not-in-vs");
+		details.setText(notFoundMsg);
+		issue.setDetails(details);
+		issue.addLocation("Coding.code");
+		issue.addExpression("Coding.code");
 
 		Parameters result = new Parameters();
-		result.addParameter("code", new CodeType(requestedCode));
-
-		if (allowedCodes != null && allowedCodes.contains(requestedCode)) {
-			// 成功：代碼在 ValueSet 中
-			String display = NS_CODE_S.equals(requestedCode) ? NS_DISPLAY_S
-					: NS_CODE_NS.equals(requestedCode) ? NS_DISPLAY_NS
-					: requestedCode;
-			result.addParameter("display", new StringType(display));
-			result.addParameter("result", new BooleanType(true));
-			result.addParameter("system", new UriType(expectedCsUrl));
-			result.addParameter("version", new StringType(NS_CS_VERSION_STR));
-		} else {
-			// 失敗：代碼不在 ValueSet 中，回傳 not-in-vs OperationOutcome
-			String vsWithVersion = vsUrl + "|" + NS_VS_VERSION_STR;
-			String notFoundMsg = String.format(
-					"The provided code '%s#%s' was not found in the value set '%s'",
-					expectedCsUrl, requestedCode, vsWithVersion);
-
-			OperationOutcome outcome = new OperationOutcome();
-			OperationOutcome.OperationOutcomeIssueComponent issue = outcome.addIssue();
-			issue.setSeverity(OperationOutcome.IssueSeverity.ERROR);
-			issue.setCode(OperationOutcome.IssueType.CODEINVALID);
-			Extension msgIdExt = new Extension();
-			msgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
-			msgIdExt.setValue(new StringType("None_of_the_provided_codes_are_in_the_value_set_one"));
-			issue.addExtension(msgIdExt);
-			CodeableConcept details = new CodeableConcept();
-			details.addCoding()
-					.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type")
-					.setCode("not-in-vs");
-			details.setText(notFoundMsg);
-			issue.setDetails(details);
-			issue.addLocation("Coding.code");
-			issue.addExpression("Coding.code");
-
-			result.addParameter().setName("issues").setResource(outcome);
-			result.addParameter("message", new StringType(notFoundMsg));
-			result.addParameter("result", new BooleanType(false));
-			result.addParameter("system", new UriType(expectedCsUrl));
-			result.addParameter("version", new StringType(NS_CS_VERSION_STR));
-		}
+		result.addParameter("code", new CodeType(code));
+		result.addParameter().setName("issues").setResource(outcome);
+		result.addParameter("message", new StringType(notFoundMsg));
+		result.addParameter("result", new BooleanType(false));
+		result.addParameter("system", new UriType(csUrl));
+		result.addParameter("version", new StringType(NS_CS_VERSION_STR));
 		return result;
 	}
 
