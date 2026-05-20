@@ -1475,14 +1475,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             @OperationParam(name = "system-version") List<CanonicalType> theSystemVersionList,
             @OperationParam(name = "check-system-version") List<CanonicalType> theCheckSystemVersion,
             @OperationParam(name = "force-system-version") List<CanonicalType> theForceSystemVersion,
-            @OperationParam(name = "tx-resource") List<IBaseResource> txResources,
-            @OperationParam(name = "validation") List<Parameters> validations
+            @OperationParam(name = "tx-resource") List<IBaseResource> txResources
     ) {
-
-        // Batch mode：有 validation 參數時，優先走 batch 流程
-        if (validations != null && !validations.isEmpty()) {
-            return handleBatchValidation(txResources, url, lenientDisplayValidation, validations);
-        }
 
     	// 在所有驗證之前先檢查 displayLanguage 的有效性
     	if (displayLanguage != null && !displayLanguage.isEmpty()) {
@@ -12248,6 +12242,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		}
 	}
 
+    @Operation(name = "$batch-validate", idempotent = false)
+    public Parameters batchValidate(
+            @OperationParam(name = "url") UriType url,
+            @OperationParam(name = "lenient-display-validation") BooleanType lenientDisplayValidation,
+            @OperationParam(name = "tx-resource") List<IBaseResource> txResources,
+            @OperationParam(name = "validation") List<Parameters> validations
+    ) {
+        if (validations == null || validations.isEmpty()) {
+            throw new InvalidRequestException("At least one 'validation' parameter is required");
+        }
+        return handleBatchValidation(txResources, url, lenientDisplayValidation, validations);
+    }
+
     private Parameters handleBatchValidation(
             List<IBaseResource> txResources,
             UriType globalUrl,
@@ -12350,8 +12357,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 null,             // system-version list
                 null,             // check-system-version list
                 null,             // force-system-version list
-                null,             // txResources
-                null              // validations（null 確保不重入 batch 模式）
+                null              // txResources
             );
         } catch (UnprocessableEntityException e) {
             if (e.getOperationOutcome() instanceof OperationOutcome oo) return oo;
