@@ -7,13 +7,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
+import com.hitstdio.fhir.server.provider.BatchValidateProvider;
 import com.hitstdio.fhir.server.provider.BundleResourceProvider;
 import com.hitstdio.fhir.server.provider.CodeSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.ConceptMapResourceProvider;
+import com.hitstdio.fhir.server.provider.StructureDefinitionResourceProvider;
 import com.hitstdio.fhir.server.provider.TerminologyCapabilitiesResourceProvider;
 import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
-import com.hitstdio.fhir.server.provider.ValueSetResourceProvider;
-import com.hitstdio.fhir.server.provider.StructureDefinitionResourceProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +30,11 @@ public class TestServerR4AppCtx {
 		this.myDaoRegistry = theDaoRegistry;
 	}
 
+	@Bean
+	public ValueSetResourceProvider valueSetResourceProvider() {
+		return new ValueSetResourceProvider(myDaoRegistry);
+	}
+
 	@Bean(name = "resourceProviders")
 	public List<IResourceProvider> resourceProviders() {
 		List<IResourceProvider> retVal = new ArrayList<>();
@@ -37,7 +42,7 @@ public class TestServerR4AppCtx {
 		retVal.add(new CodeSystemResourceProvider(myDaoRegistry));
 		retVal.add(new ConceptMapResourceProvider(myDaoRegistry));
 		retVal.add(new TerminologyCapabilitiesResourceProvider(myDaoRegistry));
-		retVal.add(new ValueSetResourceProvider(myDaoRegistry));
+		retVal.add(valueSetResourceProvider());
 		retVal.add(new StructureDefinitionResourceProvider(myDaoRegistry));
 		return retVal;
 	}
@@ -46,6 +51,7 @@ public class TestServerR4AppCtx {
 	public List<Object> plainProviders() {
 		List<Object> retVal = new ArrayList<>();
 		retVal.add(new SystemProvider());
+		retVal.add(new BatchValidateProvider(valueSetResourceProvider()));
 		return retVal;
 	}
 

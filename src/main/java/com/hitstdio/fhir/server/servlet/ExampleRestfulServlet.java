@@ -63,8 +63,9 @@ public final class ExampleRestfulServlet extends RestfulServer {
         Class<?> configClass = TestServerR4AppCtx.class;
         AnnotationConfigApplicationContext appCtx = new AnnotationConfigApplicationContext(configClass);
 		List<IResourceProvider> providers = appCtx.getBean("resourceProviders", List.class);
-		
-		
+		List<Object> plainProviders = appCtx.getBean("plainProviders", List.class);
+
+
 		StaticCapabilityStatementInterceptor interceptor = new StaticCapabilityStatementInterceptor();
 	    interceptor.setCapabilityStatementResource("classpath:capabilitystatement.json");
 	    registerInterceptor(interceptor);
@@ -74,6 +75,7 @@ public final class ExampleRestfulServlet extends RestfulServer {
         providers.add(terminologyProvider);
 		
 		setResourceProviders(providers);
+		registerProviders(plainProviders);
 		setDefaultResponseEncoding(EncodingEnum.JSON);		
 		
         registerInterceptor(new CapabilityStatementInterceptor(terminologyProvider));
