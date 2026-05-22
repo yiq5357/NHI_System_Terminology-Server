@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
-import com.hitstdio.fhir.server.provider.BatchValidateProvider;
 import com.hitstdio.fhir.server.provider.BundleResourceProvider;
 import com.hitstdio.fhir.server.provider.CodeSystemResourceProvider;
 import com.hitstdio.fhir.server.provider.ConceptMapResourceProvider;
@@ -51,7 +50,6 @@ public class TestServerR4AppCtx {
 	public List<Object> plainProviders() {
 		List<Object> retVal = new ArrayList<>();
 		retVal.add(new SystemProvider());
-		retVal.add(new BatchValidateProvider(valueSetResourceProvider()));
 		return retVal;
 	}
 

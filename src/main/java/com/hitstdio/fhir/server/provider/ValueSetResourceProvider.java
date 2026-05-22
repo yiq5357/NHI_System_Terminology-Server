@@ -6182,8 +6182,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                      codeValue, systemUrl);
 	                }
 	            } else if (isCoding) {
-	                // 範例二：coding 參數的 issue details.text 使用 $external 佔位符格式
-	                notInVsDetailsText = String.format("$external:1:%s|%s$", valueSetUrl, valueSetVersion);
+	                if (isCodeNotInValueSet) {
+	                    // code 存在於 codeSystem 但不在 ValueSet 的 compose 中，使用人類可讀格式
+	                    boolean vsHasVersion = context.valueSet() != null && context.valueSet().hasVersion();
+	                    String vsRef = vsHasVersion
+	                            ? String.format("%s|%s", valueSetUrl, context.valueSet().getVersion())
+	                            : valueSetUrl;
+	                    notInVsDetailsText = String.format(
+	                            "The provided code '%s#%s' was not found in the value set '%s'",
+	                            systemUrl, codeValue, vsRef);
+	                } else {
+	                    // 範例二：coding 參數的 issue details.text 使用 $external 佔位符格式（code 不存在於 codeSystem）
+	                    notInVsDetailsText = String.format("$external:1:%s|%s$", valueSetUrl, valueSetVersion);
+	                }
 	                unknownSystemDetailsText = String.format("$external:2:%s$", systemUrl);
 	            } else {
 	                // codeableConcept 參數的一般錯誤使用 $external 佔位符
@@ -6285,6 +6296,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                systemUrl, systemUrl, codeValue, valueSetUrl, valueSetVersion);
 	        } else if (isCaseSensitiveCode1_3) {
 	            mainErrorMessage = notInVsDetailsText + "; " + unknownSystemDetailsText;
+	        } else if (isCoding && isCodeNotInValueSet) {
+	            // code 存在於 codeSystem 但不在 ValueSet 中，message 與 not-in-vs issue 文字相同
+	            mainErrorMessage = notInVsDetailsText;
 	        } else if (isCoding && isInvalidCode) {
 	            // 範例二：coding 參數且同時回傳 not-in-vs + invalid-code 時，message 為 $external:3:systemUrl$
 	            mainErrorMessage = String.format("$external:3:%s$", systemUrl);
@@ -6825,10 +6839,21 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
             }
         }
         
+        // code 不在 concept list，先確認是否存在於 codeSystem
+        if (codeSystem != null) {
+            ConceptDefinitionComponent foundInCs = findConceptRecursive(codeSystem.getConcept(), code.getValue());
+            if (foundInCs != null) {
+                // code 存在於 codeSystem 但不在此 ValueSet 的 concept list → CODE_NOT_IN_VALUESET
+                String conceptDisplay = getDisplayForLanguage(foundInCs, displayLanguage);
+                Boolean inactive = isConceptInactive(foundInCs);
+                return new ValidationResult(false, foundInCs, codeSystem, conceptDisplay,
+                        ValidationErrorType.CODE_NOT_IN_VALUESET, inactive, null, null, null);
+            }
+        }
         return new ValidationResult(false, null, codeSystem, null, ValidationErrorType.INVALID_CODE, null, null, null, null);
     }
 
-    private ValidationResult validateCodeInCodeSystem(CodeSystem codeSystem, CodeType code, 
+    private ValidationResult validateCodeInCodeSystem(CodeSystem codeSystem, CodeType code,
             											StringType display, CodeType displayLanguage, 
             											BooleanType abstractAllowed, BooleanType activeOnly,
                                                         BooleanType lenientDisplayValidation,
@@ -12242,22 +12267,43 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		}
 	}
 
+    @Operation(name = "$batch-validate-code", idempotent = false)
     public Parameters batchValidate(
             @OperationParam(name = "url") UriType url,
+            @OperationParam(name = "version") StringType version,
             @OperationParam(name = "lenient-display-validation") BooleanType lenientDisplayValidation,
+            @OperationParam(name = "activeOnly") BooleanType activeOnly,
+            @OperationParam(name = "inferSystem") BooleanType inferSystem,
+            @OperationParam(name = "displayLanguage") CodeType displayLanguage,
+            @OperationParam(name = "default-valueset-version") CanonicalType defaultValuesetVersion,
+            @OperationParam(name = "system-version") List<CanonicalType> systemVersion,
+            @OperationParam(name = "check-system-version") List<CanonicalType> checkSystemVersion,
+            @OperationParam(name = "force-system-version") List<CanonicalType> forceSystemVersion,
             @OperationParam(name = "tx-resource") List<IBaseResource> txResources,
             @OperationParam(name = "validation") List<Parameters> validations
     ) {
         if (validations == null || validations.isEmpty()) {
             throw new InvalidRequestException("At least one 'validation' parameter is required");
         }
-        return handleBatchValidation(txResources, url, lenientDisplayValidation, validations);
+        return handleBatchValidation(
+                txResources, url, version, lenientDisplayValidation, activeOnly, inferSystem,
+                displayLanguage, defaultValuesetVersion,
+                systemVersion, checkSystemVersion, forceSystemVersion,
+                validations);
     }
 
     private Parameters handleBatchValidation(
             List<IBaseResource> txResources,
             UriType globalUrl,
+            StringType globalVersion,
             BooleanType globalLenient,
+            BooleanType globalActiveOnly,
+            BooleanType globalInferSystem,
+            CodeType globalDisplayLanguage,
+            CanonicalType globalDefaultValuesetVersion,
+            List<CanonicalType> globalSystemVersion,
+            List<CanonicalType> globalCheckSystemVersion,
+            List<CanonicalType> globalForceSystemVersion,
             List<Parameters> validations) {
 
         Parameters output = new Parameters();
@@ -12271,7 +12317,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 }
             }
             for (Parameters validationInput : validations) {
-                Resource result = executeBatchItem(validationInput, globalUrl, globalLenient);
+                Resource result = executeBatchItem(
+                        validationInput,
+                        globalUrl, globalVersion, globalLenient, globalActiveOnly, globalInferSystem,
+                        globalDisplayLanguage, globalDefaultValuesetVersion,
+                        globalSystemVersion, globalCheckSystemVersion, globalForceSystemVersion);
                 output.addParameter().setName("validation").setResource(result);
             }
         } finally {
@@ -12284,14 +12334,36 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     private Resource executeBatchItem(
             Parameters itemParams,
             UriType globalUrl,
-            BooleanType globalLenient) {
+            StringType globalVersion,
+            BooleanType globalLenient,
+            BooleanType globalActiveOnly,
+            BooleanType globalInferSystem,
+            CodeType globalDisplayLanguage,
+            CanonicalType globalDefaultValuesetVersion,
+            List<CanonicalType> globalSystemVersion,
+            List<CanonicalType> globalCheckSystemVersion,
+            List<CanonicalType> globalForceSystemVersion) {
 
+        // 必填輸入
         Coding coding = null;
         CodeableConcept codeableConcept = null;
         CodeType code = null;
+        // per-item 覆蓋值（null 代表未設定，後續 fallback 至全域）
         CanonicalType system = null;
         StringType display = null;
+        UriType localUrl = null;
+        StringType localVersion = null;
         BooleanType localLenient = null;
+        BooleanType localActiveOnly = null;
+        BooleanType localInferSystem = null;
+        StringType localSystemVersion = null;
+        CodeType localDisplayLanguage = null;
+        BooleanType localAbstract = null;
+        BooleanType localValuesetMembershipOnly = null;
+        CanonicalType localDefaultValuesetVersion = null;
+        List<CanonicalType> localSystemVersionList = null;
+        List<CanonicalType> localCheckSystemVersion = null;
+        List<CanonicalType> localForceSystemVersion = null;
         boolean hasValidInput = false;
         StringBuilder seenParams = new StringBuilder();
 
@@ -12316,8 +12388,53 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                 case "display":
                     if (p.getValue() instanceof StringType s) display = s;
                     break;
+                case "url":
+                    if (p.getValue() instanceof UriType u) localUrl = u;
+                    break;
+                case "version":
+                    if (p.getValue() instanceof StringType s) localVersion = s;
+                    break;
                 case "lenient-display-validation":
                     if (p.getValue() instanceof BooleanType b) localLenient = b;
+                    break;
+                case "activeOnly":
+                    if (p.getValue() instanceof BooleanType b) localActiveOnly = b;
+                    break;
+                case "inferSystem":
+                    if (p.getValue() instanceof BooleanType b) localInferSystem = b;
+                    break;
+                case "systemVersion":
+                    if (p.getValue() instanceof StringType s) localSystemVersion = s;
+                    break;
+                case "displayLanguage":
+                    if (p.getValue() instanceof CodeType c) localDisplayLanguage = c;
+                    break;
+                case "abstract":
+                    if (p.getValue() instanceof BooleanType b) localAbstract = b;
+                    break;
+                case "valueset-membership-only":
+                    if (p.getValue() instanceof BooleanType b) localValuesetMembershipOnly = b;
+                    break;
+                case "default-valueset-version":
+                    if (p.getValue() instanceof CanonicalType c) localDefaultValuesetVersion = c;
+                    break;
+                case "system-version":
+                    if (p.getValue() instanceof CanonicalType c) {
+                        if (localSystemVersionList == null) localSystemVersionList = new ArrayList<>();
+                        localSystemVersionList.add(c);
+                    }
+                    break;
+                case "check-system-version":
+                    if (p.getValue() instanceof CanonicalType c) {
+                        if (localCheckSystemVersion == null) localCheckSystemVersion = new ArrayList<>();
+                        localCheckSystemVersion.add(c);
+                    }
+                    break;
+                case "force-system-version":
+                    if (p.getValue() instanceof CanonicalType c) {
+                        if (localForceSystemVersion == null) localForceSystemVersion = new ArrayList<>();
+                        localForceSystemVersion.add(c);
+                    }
                     break;
             }
         }
@@ -12329,34 +12446,43 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
                     + seenParams + ")");
         }
 
-        // 局部 lenient 覆蓋全域
-        BooleanType effectiveLenient = localLenient != null ? localLenient : globalLenient;
+        // per-item 優先，未設定則 fallback 至全域
+        UriType effectiveUrl                       = localUrl != null ? localUrl : globalUrl;
+        StringType effectiveVersion                = localVersion != null ? localVersion : globalVersion;
+        BooleanType effectiveLenient               = localLenient != null ? localLenient : globalLenient;
+        BooleanType effectiveActiveOnly            = localActiveOnly != null ? localActiveOnly : globalActiveOnly;
+        BooleanType effectiveInferSystem           = localInferSystem != null ? localInferSystem : globalInferSystem;
+        CodeType effectiveDisplayLanguage          = localDisplayLanguage != null ? localDisplayLanguage : globalDisplayLanguage;
+        CanonicalType effectiveDefaultVsVersion    = localDefaultValuesetVersion != null ? localDefaultValuesetVersion : globalDefaultValuesetVersion;
+        List<CanonicalType> effectiveSystemVersion = localSystemVersionList != null ? localSystemVersionList : globalSystemVersion;
+        List<CanonicalType> effectiveCheckSysVer   = localCheckSystemVersion != null ? localCheckSystemVersion : globalCheckSystemVersion;
+        List<CanonicalType> effectiveForceSysVer   = localForceSystemVersion != null ? localForceSystemVersion : globalForceSystemVersion;
 
         try {
             return (Resource) validateCode(
-                null,             // resourceId
-                code,             // code
-                system,           // system
-                null,             // systemVersion (StringType)
-                null,             // systemVersionCode (CodeType)
-                globalUrl,        // url
-                null,             // valueSet
-                null,             // version
-                null,             // valueSetVersion
-                display,          // display
-                coding,           // coding
-                codeableConcept,  // codeableConcept
-                null,             // displayLanguage
-                null,             // abstract
-                null,             // activeOnly
-                null,             // inferSystem
-                effectiveLenient, // lenient-display-validation
-                null,             // valueset-membership-only
-                null,             // default-valueset-version
-                null,             // system-version list
-                null,             // check-system-version list
-                null,             // force-system-version list
-                null              // txResources
+                null,                    // resourceId
+                code,                    // code
+                system,                  // system
+                localSystemVersion,      // systemVersion (StringType，per-item 專屬)
+                null,                    // systemVersionCode (CodeType，已由 systemVersion 涵蓋)
+                effectiveUrl,            // url
+                null,                    // valueSet（inline ValueSet 透過 ThreadLocal 處理）
+                effectiveVersion,        // version
+                null,                    // valueSetVersion
+                display,                 // display
+                coding,                  // coding
+                codeableConcept,         // codeableConcept
+                effectiveDisplayLanguage,// displayLanguage
+                localAbstract,           // abstract
+                effectiveActiveOnly,     // activeOnly
+                effectiveInferSystem,    // inferSystem
+                effectiveLenient,        // lenient-display-validation
+                localValuesetMembershipOnly, // valueset-membership-only
+                effectiveDefaultVsVersion,   // default-valueset-version
+                effectiveSystemVersion,  // system-version list
+                effectiveCheckSysVer,    // check-system-version list
+                effectiveForceSysVer,    // force-system-version list
+                null                     // txResources（已透過 ThreadLocal 注冊）
             );
         } catch (UnprocessableEntityException e) {
             if (e.getOperationOutcome() instanceof OperationOutcome oo) return oo;
