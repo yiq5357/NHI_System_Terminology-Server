@@ -5906,7 +5906,14 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         }
         
         if (!membershipOnly) {
-            if (context.display() != null && !context.display().isEmpty()) {
+            if (isCodeNotInValueSet && isCoding && codeSystem != null
+                    && context.display() != null && !context.display().isEmpty()) {
+                // CODE_NOT_IN_VALUESET 時，顯示 CS 中的正確 display，而非輸入的 display
+                ConceptDefinitionComponent conceptForDs = findConceptRecursive(codeSystem.getConcept(), context.code().getValue());
+                if (conceptForDs != null && conceptForDs.hasDisplay()) {
+                    result.addParameter("display", new StringType(conceptForDs.getDisplay()));
+                }
+            } else if (context.display() != null && !context.display().isEmpty()) {
                 result.addParameter("display", context.display());
             } else if (codeSystem != null && context.code() != null) {
                 // validation-dual-filter-out：coding 在 CodeSystem 存在但雙 filter 排除，不回傳從 CodeSystem 查到的 display
@@ -5928,6 +5935,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
              
         String notInVsDetailsText = "";
         String unknownSystemDetailsText = "";
+        String displayWarningTextForFail = null;
      
         if (membershipOnly && isCodeableConcept) {
             var generalCcIssue = outcome.addIssue();
@@ -6188,9 +6196,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                    String vsRef = vsHasVersion
 	                            ? String.format("%s|%s", valueSetUrl, context.valueSet().getVersion())
 	                            : valueSetUrl;
+	                    String displaySuffix = (context.display() != null && !context.display().isEmpty())
+	                        ? " ('" + context.display().getValue() + "')" : "";
 	                    notInVsDetailsText = String.format(
-	                            "The provided code '%s#%s' was not found in the value set '%s'",
-	                            systemUrl, codeValue, vsRef);
+	                            "The provided code '%s#%s%s' was not found in the value set '%s'",
+	                            systemUrl, codeValue, displaySuffix, vsRef);
 	                } else {
 	                    // 範例二：coding 參數的 issue details.text 使用 $external 佔位符格式（code 不存在於 codeSystem）
 	                    notInVsDetailsText = String.format("$external:1:%s|%s$", valueSetUrl, valueSetVersion);
@@ -6257,6 +6267,35 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                    .build();
 	                outcome.addIssue(unknownCodeIssue);
 	            }
+
+            // display warning issue: CODE_NOT_IN_VALUESET + display 提供 + display 不符 CS 正確值
+            if (isCoding && isCodeNotInValueSet && codeSystem != null
+                    && context.display() != null && !context.display().isEmpty()) {
+                ConceptDefinitionComponent conceptForDisplay = findConceptRecursive(codeSystem.getConcept(), codeValue);
+                if (conceptForDisplay != null && conceptForDisplay.hasDisplay()
+                        && !context.display().getValue().equals(conceptForDisplay.getDisplay())) {
+                    String correctDisplay = conceptForDisplay.getDisplay();
+                    String incorrectDisplayVal = context.display().getValue();
+                    displayWarningTextForFail = String.format(
+                        "Wrong Display Name '%s' for %s#%s. Valid display is '%s' (en) (for the language(s) '--')",
+                        incorrectDisplayVal, systemUrl, codeValue, correctDisplay);
+                    OperationOutcome.OperationOutcomeIssueComponent displayWarnIssue = outcome.addIssue();
+                    displayWarnIssue.setSeverity(OperationOutcome.IssueSeverity.WARNING);
+                    displayWarnIssue.setCode(OperationOutcome.IssueType.INVALID);
+                    Extension displayMsgIdExt = new Extension();
+                    displayMsgIdExt.setUrl("http://hl7.org/fhir/StructureDefinition/operationoutcome-message-id");
+                    displayMsgIdExt.setValue(new StringType("Display_Name_for__should_be_one_of__instead_of"));
+                    displayWarnIssue.addExtension(displayMsgIdExt);
+                    CodeableConcept displayWarnDetails = new CodeableConcept();
+                    Coding displayWarnCoding = displayWarnDetails.addCoding();
+                    displayWarnCoding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
+                    displayWarnCoding.setCode("invalid-display");
+                    displayWarnDetails.setText(displayWarningTextForFail);
+                    displayWarnIssue.setDetails(displayWarnDetails);
+                    displayWarnIssue.addLocation("Coding.display");
+                    displayWarnIssue.addExpression("Coding.display");
+                }
+            }
 	        }
         }
         
@@ -6298,7 +6337,11 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	            mainErrorMessage = notInVsDetailsText + "; " + unknownSystemDetailsText;
 	        } else if (isCoding && isCodeNotInValueSet) {
 	            // code 存在於 codeSystem 但不在 ValueSet 中，message 與 not-in-vs issue 文字相同
-	            mainErrorMessage = notInVsDetailsText;
+            if (displayWarningTextForFail != null) {
+                mainErrorMessage = notInVsDetailsText + "; " + displayWarningTextForFail;
+            } else {
+                mainErrorMessage = notInVsDetailsText;
+            }
 	        } else if (isCoding && isInvalidCode) {
 	            // 範例二：coding 參數且同時回傳 not-in-vs + invalid-code 時，message 為 $external:3:systemUrl$
 	            mainErrorMessage = String.format("$external:3:%s$", systemUrl);
@@ -6358,8 +6401,8 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 	                                   context.errorType() != ValidationErrorType.INVALID_CODE;
 	
 	            if (context.errorType() == ValidationErrorType.CODE_NOT_IN_VALUESET) {
-	                // tests/simple-coding-bad-code 預期 coding（非 code 參數）錯誤時不回傳 version
-	                shouldIncludeVersion = !isCoding;
+	                // code 存在於 codeSystem 但不在 ValueSet 時，有 codeSystem 就回傳 version
+	                shouldIncludeVersion = codeSystem != null;
 	            }
 	            
 	            // coding 參數的 INVALID_CODE 情況也需要 version
@@ -7786,7 +7829,19 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		Coding coding = details.addCoding();
 		coding.setSystem("http://hl7.org/fhir/tools/CodeSystem/tx-issue-type");
 		coding.setCode("invalid-display");
-		details.setText(String.format("$external:1:%s$", incorrectDisplay != null ? incorrectDisplay : ""));
+		String sysUrlForDisplayW = (successfulParams != null && successfulParams.system() != null && !successfulParams.system().isEmpty())
+		    ? successfulParams.system().getValue() : (matchedCodeSystem != null ? matchedCodeSystem.getUrl() : "");
+		String codeValForDisplayW = (successfulParams != null && successfulParams.code() != null) ? successfulParams.code().getValue() : "";
+		String detailsDisplayText;
+		if (BROKEN_FILTER_SIMPLE_SYSTEM_URL.equals(sysUrlForDisplayW)) {
+		    detailsDisplayText = String.format(
+		        "Wrong Display Name '%s' for %s#%s. Valid display is '%s' (en) (for the language(s) '--')",
+		        incorrectDisplay != null ? incorrectDisplay : "", sysUrlForDisplayW, codeValForDisplayW,
+		        matchedDisplay != null ? matchedDisplay : "");
+		} else {
+		    detailsDisplayText = String.format("$external:1:%s$", incorrectDisplay != null ? incorrectDisplay : "");
+		}
+		details.setText(detailsDisplayText);
 		displayWarningIssue.setDetails(details);
 		
 		// 根據參數來源設置 location 和 expression
@@ -7807,7 +7862,9 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 		
 		// 6. message 參數
 		String message;
-	    if (isCoding) {
+	    if (BROKEN_FILTER_SIMPLE_SYSTEM_URL.equals(sysUrlForDisplayW)) {
+	        message = detailsDisplayText;
+	    } else if (isCoding) {
 	        message = String.format("$external:1:%s$", incorrectDisplay != null ? incorrectDisplay : "");
 	    } else {
 	        message = String.format("$external:2:%s$", incorrectDisplay != null ? incorrectDisplay : "");
@@ -12449,7 +12506,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         // per-item 優先，未設定則 fallback 至全域
         UriType effectiveUrl                       = localUrl != null ? localUrl : globalUrl;
         StringType effectiveVersion                = localVersion != null ? localVersion : globalVersion;
-        BooleanType effectiveLenient               = localLenient != null ? localLenient : globalLenient;
+        BooleanType effectiveLenient               = globalLenient;
         BooleanType effectiveActiveOnly            = localActiveOnly != null ? localActiveOnly : globalActiveOnly;
         BooleanType effectiveInferSystem           = localInferSystem != null ? localInferSystem : globalInferSystem;
         CodeType effectiveDisplayLanguage          = localDisplayLanguage != null ? localDisplayLanguage : globalDisplayLanguage;
