@@ -1,0 +1,14 @@
+hapi:
+  fhir:
+    implementationguides: {}
+#      twcore:
+#        name: tw.gov.mohw.twcore
+#        version: 0.3.2
+#        reloadExisting: false
+#        installMode: STORE_AND_INSTALL
+#        packageUrl: file:///data/ig/tw.gov.mohw.twcore-0.3.2.tgz
+#      hl7-terminology:
+#        name: hl7.terminology.r4
+#        version: 5.5.0
+#        reloadExisting: false
+#        installMode: STORE_AND_INSTALL
