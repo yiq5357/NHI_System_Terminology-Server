@@ -1,0 +1,37 @@
+# config.properties — 掛入 /config/config.properties
+
+fhir.id=home
+fhir.baseUrl=http://localhost:8080/fhir
+fhir.name=NHI FHIR Terminology Server
+
+hapi.fhir.allow-patch=true
+
+# Oracle 21c — 使用 docker-compose 中 oracle service 的 hostname
+db.url=jdbc:oracle:thin:@oracle:1521/XEPDB1
+db.driver-class-name=oracle.jdbc.OracleDriver
+db.username=ENC()
+db.password=ENC()
+
+spring.jpa.database-platform=ca.uhn.fhir.jpa.model.dialect.HapiFhirOracleDialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.format_sql=false
+
+hibernate.dialect=org.hibernate.dialect.OracleDialect
+hibernate.models.treat_records_as_immutable=true
+
+hibernate.connection.provider_class=com.zaxxer.hikari.hibernate.HikariConnectionProvider
+hibernate.hikari.minimumIdle=5
+hibernate.hikari.maximumPoolSize=20
+hibernate.hikari.idleTimeout=300000
+hibernate.hikari.connectionTimeout=20000
+
+hibernate.jdbc.batch_size=50
+hibernate.order_inserts=true
+hibernate.order_updates=true
+hibernate.jdbc.fetch_size=50
+
+spring.jpa.properties.hibernate.models.treat_records_as_immutable=true
+
+logging.level.org.hibernate=WARN
+logging.level.com.zaxxer.hikari=WARN

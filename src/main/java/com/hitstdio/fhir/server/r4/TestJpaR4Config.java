@@ -49,7 +49,9 @@ import javax.sql.DataSource;
 
 @Configuration
 @PropertySource("classpath:config.properties")
+@PropertySource(value = "file:///config/config.properties", ignoreResourceNotFound = true)
 @PropertySource(value = "classpath:application.yaml", factory = YamlPropertySourceFactory.class, ignoreResourceNotFound = true)
+@PropertySource(value = "file:///config/application.yaml", name = "external-application-yaml", factory = YamlPropertySourceFactory.class, ignoreResourceNotFound = true)
 @EnableConfigurationProperties(HapiIgProperties.class)
 @Import({
 	JpaR4Config.class,
