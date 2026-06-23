@@ -1,0 +1,15 @@
+hapi:
+  fhir:
+    implementationguides:
+      tx-ecosystem:
+        name: hl7.fhir.uv.tx-ecosystem
+        version: 1.9.0-SNAPSHOT
+        reloadExisting: false
+        installMode: STORE_ONLY
+        packageUrl: file:///data/ig/package1.9.0.tgz
+#      hl7-terminology:
+#        name: hl7.terminology.r4
+#        version: 5.5.0
+#        reloadExisting: false
+#        installMode: STORE_AND_INSTALL
+#        packageUrl: file:///data/ig/hl7.terminology.r4-5.5.0.tgz

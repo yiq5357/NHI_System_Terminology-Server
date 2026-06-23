@@ -18,6 +18,9 @@ import ca.uhn.fhir.jpa.subscription.match.config.SubscriptionProcessorConfig;
 import ca.uhn.fhir.jpa.subscription.submit.config.SubscriptionSubmitterConfig;
 import ca.uhn.fhir.jpa.util.CircularQueueCaptureQueriesListener;
 import ca.uhn.fhir.jpa.util.CurrentThreadCaptureQueriesListener;
+import com.hitstdio.fhir.server.config.HapiIgProperties;
+import com.hitstdio.fhir.server.config.IgLoaderConfig;
+import com.hitstdio.fhir.server.config.YamlPropertySourceFactory;
 import jakarta.persistence.EntityManagerFactory;
 import net.ttddyy.dsproxy.listener.SingleQueryCountHolder;
 import net.ttddyy.dsproxy.listener.logging.SLF4JLogLevel;
@@ -28,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -45,6 +49,10 @@ import javax.sql.DataSource;
 
 @Configuration
 @PropertySource("classpath:config.properties")
+@PropertySource(value = "file:///config/config.properties", ignoreResourceNotFound = true)
+@PropertySource(value = "classpath:application.yaml", factory = YamlPropertySourceFactory.class, ignoreResourceNotFound = true)
+@PropertySource(value = "file:///config/application.yaml", name = "external-application-yaml", factory = YamlPropertySourceFactory.class, ignoreResourceNotFound = true)
+@EnableConfigurationProperties(HapiIgProperties.class)
 @Import({
 	JpaR4Config.class,
 	HapiJpaConfig.class,
@@ -191,5 +199,10 @@ public class TestJpaR4Config extends TestJpaConfig {
 	@Lazy
 	public IBinaryStorageSvc binaryStorage() {
 		return new MemoryBinaryStorageSvcImpl();
+	}
+
+	@Bean
+	public IgLoaderConfig igLoaderConfig() {
+		return new IgLoaderConfig();
 	}
 }
