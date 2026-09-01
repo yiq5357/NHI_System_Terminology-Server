@@ -266,6 +266,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     @Operation(name = "$expand", idempotent = true)
     public ValueSet expandValueSetTypeLevel(
             @OperationParam(name = "url") UriType theUrl,
+            @OperationParam(name = "valueSet") ValueSet theValueSet,
             @OperationParam(name = "valueSetVersion") StringType theValueSetVersion,
             @OperationParam(name = "filter") StringType theFilter,
             @OperationParam(name = "date") DateType theDate,
@@ -288,6 +289,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
 
         ExpansionRequest request = ExpansionRequest.builder()
                 .url(theUrl)
+                .valueSet(theValueSet)
                 .valueSetVersion(theValueSetVersion)
                 .filter(theFilter)
                 .date(theDate)
@@ -319,6 +321,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
     public ValueSet expandValueSetInstanceLevel(
             @IdParam IdType theId,
             @OperationParam(name = "url") UriType theUrl,
+            @OperationParam(name = "valueSet") ValueSet theValueSet,
             @OperationParam(name = "valueSetVersion") StringType theValueSetVersion,
             @OperationParam(name = "filter") StringType theFilter,
             @OperationParam(name = "date") DateType theDate,
@@ -342,6 +345,7 @@ public final class ValueSetResourceProvider extends BaseResourceProvider<ValueSe
         ExpansionRequest request = ExpansionRequest.builder()
                 .id(theId)
                 .url(theUrl)
+                .valueSet(theValueSet)
                 .valueSetVersion(theValueSetVersion)
                 .filter(theFilter)
                 .date(theDate)
