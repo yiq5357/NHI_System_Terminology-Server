@@ -93,17 +93,21 @@ public final class ExampleRestfulServlet extends RestfulServer {
 		registerProviders(plainProviders);
 		setDefaultResponseEncoding(EncodingEnum.JSON);		
 		
+		// 代碼數超過門檻的 CodeSystem，查詢回應改為 content = not-present（須在 ResponseHighlighterInterceptor 之前執行）
+		int notPresentThreshold = appCtx.getEnvironment().getProperty(
+				NOT_PRESENT_THRESHOLD_PROPERTY, Integer.class, DEFAULT_NOT_PRESENT_THRESHOLD);
+		ourLog.info("CodeSystem not-present threshold: {} concepts", notPresentThreshold);
+		CodeSystemContentModeInterceptor contentModeInterceptor = new CodeSystemContentModeInterceptor(notPresentThreshold);
+		// /metadata?mode=terminology 的 codeSystem.content extension 與查詢回應使用同一門檻
+		terminologyProvider.setContentModeInterceptor(contentModeInterceptor);
+
         registerInterceptor(new CapabilityStatementInterceptor(terminologyProvider));
 
 		// 禁用 NarrativeGenerator 以避免自動生成 narrative text
 		// INarrativeGenerator narrativeGen = new DefaultThymeleafNarrativeGenerator();
 		// getFhirContext().setNarrativeGenerator(narrativeGen);
 
-		// 代碼數超過門檻的 CodeSystem，查詢回應改為 content = not-present（須在 ResponseHighlighterInterceptor 之前執行）
-		int notPresentThreshold = appCtx.getEnvironment().getProperty(
-				NOT_PRESENT_THRESHOLD_PROPERTY, Integer.class, DEFAULT_NOT_PRESENT_THRESHOLD);
-		ourLog.info("CodeSystem not-present threshold: {} concepts", notPresentThreshold);
-		registerInterceptor(new CodeSystemContentModeInterceptor(notPresentThreshold));
+		registerInterceptor(contentModeInterceptor);
 
 		registerInterceptor(new ResponseHighlighterInterceptor());
 		

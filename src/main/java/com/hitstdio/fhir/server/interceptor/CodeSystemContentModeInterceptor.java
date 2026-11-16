@@ -66,15 +66,24 @@ public class CodeSystemContentModeInterceptor {
 		return true;
 	}
 
+	/**
+	 * 查詢回應中此 CodeSystem 會呈現的 content（不修改資源）；/metadata?mode=terminology 也依此判斷
+	 */
+	public CodeSystemContentMode getEffectiveContent(CodeSystem theCodeSystem) {
+		CodeSystemContentMode content = theCodeSystem.getContent();
+		if (content == CodeSystemContentMode.COMPLETE && countConcepts(theCodeSystem.getConcept()) > myThreshold) {
+			return CodeSystemContentMode.NOTPRESENT;
+		}
+		return content;
+	}
+
 	boolean maskIfLarge(CodeSystem theCodeSystem) {
-		if (theCodeSystem.getContent() != CodeSystemContentMode.COMPLETE) {
+		if (theCodeSystem.getContent() != CodeSystemContentMode.COMPLETE
+				|| getEffectiveContent(theCodeSystem) != CodeSystemContentMode.NOTPRESENT) {
 			return false;
 		}
 
 		int conceptCount = countConcepts(theCodeSystem.getConcept());
-		if (conceptCount <= myThreshold) {
-			return false;
-		}
 
 		theCodeSystem.setConcept(new ArrayList<>());
 		// narrative 通常也列出全部代碼，一併移除才能真正縮小回應，且避免與 not-present 矛盾

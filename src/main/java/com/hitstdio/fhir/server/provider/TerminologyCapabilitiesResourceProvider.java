@@ -9,12 +9,16 @@ import java.util.Map;
 
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.CodeSystem;
+import org.hl7.fhir.r4.model.CodeSystem.CodeSystemContentMode;
+import org.hl7.fhir.r4.model.CodeType;
 import org.hl7.fhir.r4.model.Enumerations;
 import org.hl7.fhir.r4.model.TerminologyCapabilities;
 import org.hl7.fhir.r4.model.TerminologyCapabilities.CapabilityStatementKind;
 import org.hl7.fhir.r4.model.TerminologyCapabilities.TerminologyCapabilitiesCodeSystemComponent;
 import org.hl7.fhir.r4.model.TerminologyCapabilities.TerminologyCapabilitiesCodeSystemVersionComponent;
 import org.hl7.fhir.r4.model.TerminologyCapabilities.TerminologyCapabilitiesExpansionComponent;
+
+import com.hitstdio.fhir.server.interceptor.CodeSystemContentModeInterceptor;
 
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
@@ -36,11 +40,22 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 			"includeDefinition", "includeDesignations", "offset", "property", "system-version",
 			"tx-resource");
 
+	// R5 TerminologyCapabilities.codeSystem.content, carried into R4 as a cross-version extension
+	static final String CODESYSTEM_CONTENT_EXTENSION_URL =
+			"http://hl7.org/fhir/5.0/StructureDefinition/extension-TerminologyCapabilities.codeSystem.content";
+
 	private final IFhirResourceDao<CodeSystem> codeSystemDao;
+
+	// Same rule GET /CodeSystem uses to return large code systems as not-present
+	private CodeSystemContentModeInterceptor contentModeInterceptor;
 
 	public TerminologyCapabilitiesResourceProvider(DaoRegistry theDaoRegistry) {
 		super(theDaoRegistry);
 		this.codeSystemDao = theDaoRegistry.getResourceDao(CodeSystem.class);
+	}
+
+	public void setContentModeInterceptor(CodeSystemContentModeInterceptor theContentModeInterceptor) {
+		this.contentModeInterceptor = theContentModeInterceptor;
 	}
 
 	public TerminologyCapabilities getTerminologyCapabilities(RequestDetails requestDetails) {
@@ -81,6 +96,8 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 		IBundleProvider results = codeSystemDao.search(SearchParameterMap.newSynchronous(), requestDetails);
 
 		Map<String, List<String>> versionsByUrl = new LinkedHashMap<>();
+		// content mode as GET returns it, keyed by url then version ("" = no version)
+		Map<String, Map<String, CodeSystemContentMode>> contentByUrl = new LinkedHashMap<>();
 		for (IBaseResource resource : results.getAllResources()) {
 			if (!(resource instanceof CodeSystem)) {
 				continue;
@@ -94,6 +111,8 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 			if (cs.hasVersion() && !versions.contains(cs.getVersion())) {
 				versions.add(cs.getVersion());
 			}
+			contentByUrl.computeIfAbsent(cs.getUrl(), k -> new LinkedHashMap<>())
+					.putIfAbsent(cs.hasVersion() ? cs.getVersion() : "", getEffectiveContent(cs));
 		}
 
 		for (Map.Entry<String, List<String>> entry : versionsByUrl.entrySet()) {
@@ -101,11 +120,19 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 					.setUri(entry.getKey());
 
 			List<String> versions = entry.getValue();
+			versions.sort(TerminologyCapabilitiesResourceProvider::compareVersions);
+			String defaultVersion = versions.isEmpty() ? "" : versions.get(versions.size() - 1);
+
+			// R5 puts content on the codeSystem (not per version): describe the default version
+			Map<String, CodeSystemContentMode> contents = contentByUrl.get(entry.getKey());
+			CodeSystemContentMode content = contents.getOrDefault(defaultVersion, contents.values().iterator().next());
+			if (content != null && content != CodeSystemContentMode.NULL) {
+				csComponent.addExtension(CODESYSTEM_CONTENT_EXTENSION_URL, new CodeType(content.toCode()));
+			}
+
 			if (versions.isEmpty()) {
 				continue;
 			}
-			versions.sort(TerminologyCapabilitiesResourceProvider::compareVersions);
-			String defaultVersion = versions.get(versions.size() - 1);
 			for (String version : versions) {
 				TerminologyCapabilitiesCodeSystemVersionComponent versionComponent = csComponent.addVersion()
 						.setCode(version);
@@ -114,6 +141,10 @@ public class TerminologyCapabilitiesResourceProvider extends BaseResourceProvide
 				}
 			}
 		}
+	}
+
+	private CodeSystemContentMode getEffectiveContent(CodeSystem cs) {
+		return contentModeInterceptor != null ? contentModeInterceptor.getEffectiveContent(cs) : cs.getContent();
 	}
 
 	/**
